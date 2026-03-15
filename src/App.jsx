@@ -51,8 +51,6 @@ function Tab1({ modsDir }) {
           ))}
         </div>
       )}
-
-      {/* Bouton pour exécuter un fichier */}
       <div className="mt-4">
         <button
           onClick={handleRunFile}
@@ -61,6 +59,20 @@ function Tab1({ modsDir }) {
           Exec Test
         </button>
       </div>
+      <button
+  className="btn btn-primary mt-2"
+  onClick={() =>
+    invoke("apply_xdelta_patch", {
+      source: "",
+      patch: "",
+      output: ""
+    })
+      .then(() => alert("Patch appliqué !"))
+      .catch(console.error)
+  }
+>
+  Patch Test
+</button>
     </div>
   );
 }

@@ -1,6 +1,5 @@
 use std::fs;
 use std::process::Command;
-use tauri::command;
 
 #[tauri::command]
 fn get_mods_dir() -> Result<String, String> {
@@ -76,11 +75,39 @@ fn move_item(src_path: String, dest_path: String) -> Result<(), String> {
     Ok(())
 }
 
+fn get_xdelta_path() -> String {
+    let exe_dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+
+    let xdelta = exe_dir.join("deps").join("xdelta3.exe");
+
+    xdelta.to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn apply_xdelta_patch(source: String, patch: String, output: String) -> Result<(), String> {
+    let xdelta_path = get_xdelta_path();
+
+    let status = std::process::Command::new(xdelta_path)
+        .args(&["-d", "-s", &source, &patch, &output])
+        .status()
+        .map_err(|e| e.to_string())?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Error Xdelta, code: {}", status.code().unwrap_or(-1)))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_mods_dir, list_mods, run_file, add_item, remove_item, rename_item, move_item])
+        .invoke_handler(tauri::generate_handler![get_mods_dir, list_mods, run_file, add_item, remove_item, rename_item, move_item, apply_xdelta_patch])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
