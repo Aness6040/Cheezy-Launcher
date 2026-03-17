@@ -59,6 +59,7 @@ function ModCard({ modPath, modName }) {
   );
 }
 
+
 function OverwriteCheckbox({ overwiteDir }) {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -98,20 +99,25 @@ function OverwriteCheckbox({ overwiteDir }) {
 function Tab1({ modsDir, overwiteDir, addLog, logs }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const fetchMods = () => {
-  if (!modsDir) return;
+    if (!modsDir) return;
 
-  invoke("list_mods", { modsPath: modsDir })
-    .then((folders) => {
-      setMods(folders);
-    })
-    .catch((e) => {
-      console.error(e);
-      addLog(`Error loading mods`);
-    })
-    .finally(() => setLoading(false));
-};
+    invoke("list_mods", { modsPath: modsDir })
+      .then((folders) => {
+        setMods(folders);
+      })
+      .catch((e) => {
+        console.error(e);
+        addLog(`Error loading mods`);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const filteredMods = mods.filter(mod =>
+    mod.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   useEffect(() => {
     fetchMods();
@@ -120,21 +126,37 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
   }, [modsDir]);
 
   const handleRunFile = () => {
-  const path = `${GAME_DIR}//PizzaTower.exe`;
+    const path = `${GAME_DIR}//PizzaTower.exe`;
 
-  invoke("run_file", { path })
-    .then(() => {
-      addLog(chalk.cyan("Game launched"));
-    })
-    .catch((e) => {
-      console.error(e);
-      addLog(chalk.red("Error launching game"));
-    });
-};
+    invoke("run_file", { path })
+      .then(() => {
+        addLog(chalk.cyan("Game launched"));
+      })
+      .catch((e) => {
+        console.error(e);
+        addLog(chalk.red("Error launching game"));
+      });
+  };
 
   return (
-    <div>
-      <div className="mt-4 flex items-center gap-3">
+    <div className="flex flex-col h-full">
+      <div className="mb-3 flex gap-2 flex-shrink-0">
+        <input
+          type="text"
+          placeholder="Search mods..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="input input-bordered input-sm flex-1"
+        />
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={() => setSearchTerm("")}
+        >
+          Clear
+        </button>
+      </div>
+
+      <div className="flex gap-3 mb-3 flex-shrink-0">
         <button onClick={handleRunFile} className="btn btn-primary">
           Exec Test
         </button>
@@ -148,20 +170,30 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
         >
           Patch Test
         </button>
+        <button
+          className="btn btn-secondary"
+          onClick={() =>
+            invoke("open_item", { path: GAME_DIR})
+          }
+        >
+          Open Folder Test
+        </button>
         <OverwriteCheckbox overwiteDir={overwiteDir} />
       </div>
-      <div className="mt-4">
+
+      {/* Zone scrollable */}
+      <div className="flex-1 overflow-auto">
         {loading && <p className="text-sm">Loading...</p>}
-      {!loading && mods.length === 0 && (
-        <p className="text-sm">No mods found in{modsDir}</p>
-      )}
-      {!loading && mods.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {mods.map((mod) => (
-            <ModCard modName={mod} modPath={`${modsDir}/${mod}`} />
-          ))}
-        </div>
-      )}
+        {!loading && mods.length === 0 && (
+          <p className="text-sm">No mods found in {modsDir}</p>
+        )}
+        {!loading && mods.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {filteredMods.map((mod) => (
+              <ModCard key={mod} modName={mod} modPath={`${modsDir}/${mod}`} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

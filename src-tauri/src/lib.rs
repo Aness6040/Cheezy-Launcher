@@ -114,6 +114,28 @@ fn move_item(src_path: String, dest_path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_item(path: String) -> Result<(), String> {
+    use std::process::Command;
+    use std::env::consts::OS;
+
+    let result = match OS {
+        "macos" => Command::new("open")
+            .arg(&path)
+            .spawn(),
+        "windows" => Command::new("explorer")
+            .arg(&path)
+            .spawn(),
+        "linux" => Command::new("xdg-open")
+            .arg(&path)
+            .spawn(),
+        _ => return Err("Unsupported OS".into()),
+    };
+
+    result.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn get_xdelta_path() -> String {
     let exe_dir = std::env::current_exe()
         .unwrap()
@@ -188,7 +210,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_settings, get_main_dir, list_mods, run_file, add_item, remove_item, rename_item, edit_item, read_item, move_item, apply_xdelta_patch, apply_overwrite, remove_overwrite])
+        .invoke_handler(tauri::generate_handler![get_settings, get_main_dir, list_mods, run_file, add_item, remove_item, rename_item, edit_item, read_item, move_item, open_item, apply_xdelta_patch, apply_overwrite, remove_overwrite])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
