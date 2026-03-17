@@ -56,17 +56,23 @@ function OverwriteCheckbox({ overwiteDir }) {
   );
 }
 
-function Tab1({ modsDir, overwiteDir }) {
+function Tab1({ modsDir, overwiteDir, addLog, logs }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchMods = () => {
-    if (!modsDir) return;
-    invoke("list_mods", { modsPath: modsDir })
-      .then((folders) => setMods(folders))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
+  if (!modsDir) return;
+
+  invoke("list_mods", { modsPath: modsDir })
+    .then((folders) => {
+      setMods(folders);
+    })
+    .catch((e) => {
+      console.error(e);
+      addLog(`Error loading mods`);
+    })
+    .finally(() => setLoading(false));
+};
 
   useEffect(() => {
     fetchMods();
@@ -75,11 +81,17 @@ function Tab1({ modsDir, overwiteDir }) {
   }, [modsDir]);
 
   const handleRunFile = () => {
-    const path = `${GAME_DIR}//PizzaTower.exe`;
-    invoke("run_file", { path })
-      .then(() => console.log(`${path} exécuté !`))
-      .catch(console.error);
-  };
+  const path = `${GAME_DIR}//PizzaTower.exe`;
+
+  invoke("run_file", { path })
+    .then(() => {
+      addLog("Game launched");
+    })
+    .catch((e) => {
+      console.error(e);
+      addLog("Error launching game");
+    });
+};
 
   return (
     <div>
@@ -187,10 +199,26 @@ function SettingsTab() {
   );
 }
 
+function LogPanel({ logs }) {
+  return (
+    <div className="mt-4 p-3 bg-base-300 rounded-lg max-h-40 overflow-y-auto text-xs font-mono">
+      {logs.length === 0 && <p>No logs yet...</p>}
+      {logs.map((log, i) => (
+        <div key={i}>{log}</div>
+      ))}
+    </div>
+  );
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("tab1");
   const [modsDir, setModsDir] = useState(null);
   const [overwiteDir, setOverwiteDir] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const addLog = (message) => {
+    const time = new Date().toLocaleTimeString();
+    setLogs((prev) => [`[${time}] ${message}`, ...prev]);
+  };
 
   useEffect(() => {
     invoke("get_main_dir", { folderName: "mods" })
@@ -204,21 +232,31 @@ function App() {
 
   return (
   <div>
-    <div role="tablist" className="tabs tabs-lifted mb-4 flex justify-between">
-      <div className="flex gap-1">
+  <div role="tablist" className="tabs tabs-lifted flex justify-between">
+    <div className="flex gap-1">
       <a role="tab" className={`tab ${activeTab === "tab1" ? "tab-active" : ""}`} onClick={() => setActiveTab("tab1")}>Tab 1</a>
       <a role="tab" className={`tab ${activeTab === "tab2" ? "tab-active" : ""}`} onClick={() => setActiveTab("tab2")}>Tab 2</a>
       <a role="tab" className={`tab ${activeTab === "tab3" ? "tab-active" : ""}`} onClick={() => setActiveTab("tab3")}>Tab 3</a>
-      </div>
-      <a role="tab" className={`tab ${activeTab === "settings" ? "tab-active" : ""}`} onClick={() => setActiveTab("settings")}>Settings</a>
     </div>
-    <div className="p-4 bg-base-200 rounded-lg min-h-[150px]">
-      {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} />}
+    <a role="tab" className={`tab ${activeTab === "settings" ? "tab-active" : ""}`} onClick={() => setActiveTab("settings")}>Settings</a>
+  </div>
+  <div className="flex-1 p-4 bg-base-200 rounded-lg">
+    
+    <div className="flex-1 overflow-auto" style={{ height: "calc(100vh - 300px)" }}>
+      {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} addLog={addLog} logs={logs} />}
       {activeTab === "tab2" && <p>2nd (will be GMLoader suuport)</p>}
       {activeTab === "tab3" && <p>3rd (will be maybe Gamebanana search like PO)</p>}
       {activeTab === "settings" && <SettingsTab />}
     </div>
+
+    {(activeTab === "tab1" || activeTab === "tab2") && (
+      <div className="mt-auto">
+        <LogPanel logs={logs} />
+      </div>
+    )}
+
   </div>
+</div>
 );
 }
 
