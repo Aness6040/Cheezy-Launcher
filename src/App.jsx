@@ -11,18 +11,18 @@ const themes = [
   "dark"
 ];
 
-function ModCard({ modPath, modName }) {
+function ModCard({ modPath, modName, selected = false, onSelect }) {
   const [modData, setModData] = useState(null);
 
   useEffect(() => {
     const loadMod = async () => {
       try {
         const content = await invoke("read_item", { path: `${modPath}/mod.json` });
-        const data = JSON.parse(content); // parse JSON si présent
+        const data = JSON.parse(content);
         setModData(data);
       } catch (e) {
         console.warn(`No mod.json for ${modName}`, e);
-        setModData(null); // fallback si pas de mod.json
+        setModData(null);
       }
     };
 
@@ -36,7 +36,11 @@ function ModCard({ modPath, modName }) {
   const description = modData?.description || "";
 
   return (
-    <div className="rounded border border-base-300 hover:border-primary transition-colors shadow-md overflow-hidden">
+    <div
+      className={`rounded border transition-colors shadow-md overflow-hidden cursor-pointer
+                  ${selected ? "border-primary bg-primary/20" : "border-base-300 hover:border-primary"}`}
+      onClick={onSelect}
+    >
       {preview && (
         <img src={preview} alt={title} className="w-full h-32 object-cover" />
       )}
@@ -58,8 +62,6 @@ function ModCard({ modPath, modName }) {
     </div>
   );
 }
-
-
 function OverwriteCheckbox({ overwiteDir }) {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -100,6 +102,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMod, setSelectedMod] = useState(null); // <- état pour la sélection
 
   const fetchMods = () => {
     if (!modsDir) return;
@@ -124,7 +127,6 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
     const interval = setInterval(fetchMods, 2000);
     return () => clearInterval(interval);
   }, [modsDir]);
-
   const handleRunFile = () => {
     const path = `${GAME_DIR}//PizzaTower.exe`;
 
@@ -136,6 +138,9 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
         console.error(e);
         addLog(chalk.red("Error launching game"));
       });
+    };
+  const handleSelectMod = (modName) => {
+    setSelectedMod(modName === selectedMod ? null : modName); // toggle
   };
 
   return (
@@ -180,8 +185,6 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
         </button>
         <OverwriteCheckbox overwiteDir={overwiteDir} />
       </div>
-
-      {/* Zone scrollable */}
       <div className="flex-1 overflow-auto">
         {loading && <p className="text-sm">Loading...</p>}
         {!loading && mods.length === 0 && (
@@ -190,7 +193,13 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
         {!loading && mods.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {filteredMods.map((mod) => (
-              <ModCard key={mod} modName={mod} modPath={`${modsDir}/${mod}`} />
+              <ModCard
+                key={mod}
+                modName={mod}
+                modPath={`${modsDir}/${mod}`}
+                selected={mod === selectedMod}
+                onSelect={() => handleSelectMod(mod)}
+              />
             ))}
           </div>
         )}
