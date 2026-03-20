@@ -595,6 +595,70 @@ fn force_stop_game(state: State<'_, SharedState>) -> Result<(), String> {
   }
   Ok(())
 }
+#[tauri::command]
+fn download_mod(
+    mod_name: String,
+    mods_path: String,
+    file_bytes: Vec<u8>,
+    file_name: String,
+) -> Result<(), String> {
+    use std::io::Cursor;
+
+    let mod_dir = Path::new(&mods_path).join(&mod_name);
+    fs::create_dir_all(&mod_dir).map_err(|e| e.to_string())?;
+
+    if file_name.ends_with(".zip") {
+        let cursor = Cursor::new(file_bytes);
+        let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let out_path = mod_dir.join(file.name());
+            if file.is_dir() {
+                fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                let mut out = fs::File::create(&out_path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+            }
+        }
+    } else if file_name.ends_with(".7z") {
+        let tmp_path = Path::new(&mods_path).join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        sevenz_rust::decompress_file(&tmp_path, &mod_dir)
+            .map_err(|e| e.to_string())?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else if file_name.ends_with(".rar") {
+    let tmp_path = Path::new(&mods_path).join(&file_name);
+    fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+    sevenz_rust::decompress_file(&tmp_path, &mod_dir)
+        .map_err(|e| e.to_string())?;
+    fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+} else {
+        let out_path = mod_dir.join(&file_name);
+        fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn fetch_file(url: String) -> Result<Vec<u8>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    Ok(bytes.to_vec())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -626,6 +690,8 @@ pub fn run() {
       launch_game,
       is_operation_running,
       force_stop_game,
+      download_mod,
+      fetch_file,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

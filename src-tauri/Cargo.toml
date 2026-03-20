@@ -26,4 +26,11 @@ vfs = "0.12.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 walkdir = "2"
 tauri-plugin-single-instance = "2.4.0"
+zip = "8.3.0"
+sevenz-rust = "0.6.1"
+reqwest = "0.13.2"
+tokio = "1.50.0"
+
+[build]
+incremental = true
 
