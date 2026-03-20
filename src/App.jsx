@@ -108,8 +108,8 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
 
   try {
     const vfsRoot = await invoke("get_main_dir", { folderName: "vfs_root" });
+    const settingsData = await invoke("get_settings");
 
-    // 1. Préparer l'overwrite (vider + copier/patcher les mods sélectionnés)
     await invoke("prepare_overwrite", {
       mods: selectedMod ? [selectedMod] : [],
       modsPath: modsDir,
@@ -118,7 +118,6 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
     });
     addLog(chalk.yellow("Mounting VFS..."));
 
-    // 2. Monter le VFS
     await invoke("mount_vfs", {
       gameDir: GAME_DIR,
       overwritePath: overwiteDir,
@@ -126,14 +125,13 @@ function Tab1({ modsDir, overwiteDir, addLog, logs }) {
     });
     addLog(chalk.cyan("Launching game..."));
 
-    // 3. Lancer le jeu depuis le VFS (non-bloquant côté Tauri)
     await invoke("launch_game", {
       vfsRoot,
       exeName: "PizzaTower.exe",
+      launchArgs: settingsData.launch_args || [],
     });
     addLog(chalk.green("Game is running"));
 
-    // 4. Surveiller la fin du jeu pour démonter le VFS
     const poll = setInterval(async () => {
       const running = await invoke("is_operation_running");
       if (!running) {
@@ -260,6 +258,21 @@ function SettingsTab() {
           ))}
         </select>
       </div>
+
+      <div className="flex flex-col">
+    <label className="mb-1">Launch Arguments</label>
+    <input
+        type="text"
+        name="launch_args_input"
+        placeholder="-debug"
+        value={settings.launch_args?.join(" ") || ""}
+        onChange={(e) => setSettings(prev => ({
+            ...prev,
+            launch_args: e.target.value.split(" ").filter(a => a.length > 0)
+        }))}
+        className="input input-bordered input-sm"
+    />
+</div>
 
       <button
         onClick={handleSave}

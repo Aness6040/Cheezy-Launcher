@@ -17,7 +17,9 @@ type SharedState = Arc<Mutex<AppState>>;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
-  theme: String,
+    theme: String,
+    #[serde(default)]
+    launch_args: Vec<String>,
 }
 
 #[tauri::command]
@@ -26,7 +28,8 @@ fn get_settings() -> Result<Settings, String> {
   let config_path = exe_dir.join("settings.json");
   if !config_path.exists() {
     let default = Settings {
-      theme: "light".to_string(),
+    theme: "light".to_string(),
+    launch_args: Vec::new(),
     };
     fs::write(
       &config_path,
@@ -375,10 +378,8 @@ fn prepare_overwrite(
           patched = true;
           break;
         } else {
-          if use_tmp && tmp.exists() {
+          if tmp.exists() {
             let _ = fs::remove_file(&tmp);
-          } else if !use_tmp && actual_dest.exists() {
-            let _ = fs::remove_file(actual_dest);
           }
         }
       }
@@ -520,6 +521,7 @@ fn unmount_vfs(vfs_root: String) -> Result<(), String> {
 async fn launch_game(
   vfs_root: String,
   exe_name: String,
+  launch_args: Vec<String>,
   state: State<'_, SharedState>,
 ) -> Result<(), String> {
   {
@@ -539,6 +541,7 @@ async fn launch_game(
 
   let child = Command::new(&exe_path)
     .current_dir(&vfs_root)
+    .args(&launch_args)
     .spawn()
     .map_err(|e| {
       let mut s = state.lock().unwrap();
