@@ -5,15 +5,15 @@ import { open } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import AnsiToHtml from "ansi-to-html";
 import chalk from 'chalk';
+import { openUrl } from "@tauri-apps/plugin-opener";
 
-const GAME_DIR = "D:\\SteamLibrary\\steamapps\\common\\Pizza Tower";
 
 const themes = [
   "light",
   "dark"
 ];
 
-function ModCard({ modPath, modName, selected = false, onSelect }) {
+function ModCard({ modPath, modName, selected = false, onSelect, contextMenu, setContextMenu }) {
   const [modData, setModData] = useState(null);
 
   useEffect(() => {
@@ -27,9 +27,45 @@ function ModCard({ modPath, modName, selected = false, onSelect }) {
         setModData(null);
       }
     };
-
     loadMod();
   }, [modPath, modName]);
+
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, []);
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu(prev =>
+        prev?.modName === modName ? null : { x: e.clientX, y: e.clientY, modName, modPath, modData }
+    );
+};
+
+  const handleOpenFolder = (e) => {
+    e.stopPropagation();
+    invoke("open_item", { path: modPath.replace(/\//g, "\\") });
+    setContextMenu(null);
+};
+
+  const handleViewPage = (e) => {
+    e.stopPropagation();
+    if (modData?.homepage) {
+        openUrl(modData.homepage);
+    }
+    setContextMenu(null);
+  };
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    setContextMenu(null);
+    const confirmed = await window.confirm(`Delete "${modData?.title || modName}"?`);
+    if (confirmed) {
+      await invoke("remove_item", { path: modPath });
+    }
+  };
 
   const title = modData?.title || modName;
   const preview = modData?.preview || null;
@@ -38,30 +74,33 @@ function ModCard({ modPath, modName, selected = false, onSelect }) {
   const description = modData?.description || "";
 
   return (
-    <div
-      className={`rounded border transition-colors shadow-md overflow-hidden cursor-pointer
-                  ${selected ? "border-primary bg-primary/20" : "border-base-300 hover:border-primary"}`}
-      onClick={onSelect}
-    >
-      {preview && (
-        <img src={preview} alt={title} className="w-full h-32 object-cover" />
-      )}
-      <div className="card-body flex flex-col justify-center items-center p-4 text-center">
-        <h2 className="card-title text-sm font-bold truncate">{title}</h2>
-        <p className="text-xs text-gray-400 truncate">{submitter} • {cat}</p>
-        {description && <p className="text-xs mt-1 line-clamp-2">{description}</p>}
-        {modData?.homepage && (
-          <a
-            href={modData.homepage}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 text-xs mt-1 hover:underline"
-          >
-            {modData.homepage}
-          </a>
+    <>
+      <div
+        className={`rounded border transition-colors shadow-md overflow-hidden cursor-pointer
+                    ${selected ? "border-primary bg-primary/20" : "border-base-300 hover:border-primary"}`}
+        onClick={onSelect}
+        onContextMenu={handleContextMenu}
+      >
+        {preview && (
+          <img src={preview} alt={title} className="w-full h-32 object-cover" />
         )}
+        <div className="card-body flex flex-col justify-center items-center p-4 text-center">
+          <h2 className="card-title text-sm font-bold truncate">{title}</h2>
+          <p className="text-xs text-gray-400 truncate">{submitter} • {cat}</p>
+          {description && <p className="text-xs mt-1 line-clamp-2">{description}</p>}
+          {modData?.homepage && (
+            
+            <a  href={modData.homepage}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 text-xs mt-1 hover:underline"
+            >
+              {modData.homepage}
+            </a>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -71,6 +110,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMod, setSelectedMod] = useState(null);
   const [operationRunning, setOperationRunning] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
 
   const fetchMods = () => {
     if (!modsDir) return;
@@ -183,11 +223,47 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
                 modPath={`${modsDir}/${mod}`}
                 selected={mod === selectedMod}
                 onSelect={() => handleSelectMod(mod)}
+                setContextMenu={setContextMenu}
               />
             ))}
           </div>
         )}
       </div>
+      {contextMenu && (
+    <ul
+        className="menu bg-base-100 rounded-box w-56 fixed z-50 shadow-lg"
+        style={{
+            top: Math.min(contextMenu.y, window.innerHeight - 150),
+            left: Math.min(contextMenu.x, window.innerWidth - 224),
+        }}
+        onClick={(e) => e.stopPropagation()}
+    >
+        <li>
+            <a onClick={() => { invoke("open_item", { path: contextMenu.modPath.replace(/\//g, "\\") }); setContextMenu(null); }}>
+                Open Folder
+            </a>
+        </li>
+        {contextMenu.modData?.homepage && (
+            <li>
+                <a onClick={() => { openUrl(contextMenu.modData.homepage); setContextMenu(null); }}>
+                    View Page
+                </a>
+            </li>
+        )}
+        <li>
+            
+             <a className="text-error"
+                onClick={async () => {
+                    setContextMenu(null);
+                    const confirmed = await window.confirm(`Delete "${contextMenu.modData?.title || contextMenu.modName}"?`);
+                    if (confirmed) await invoke("remove_item", { path: contextMenu.modPath.replace(/\//g, "\\") });
+                }}
+            >
+                Delete
+            </a>
+        </li>
+    </ul>
+)}
     </div>
   );
 }
@@ -371,6 +447,16 @@ function BrowseMods({ modsDir, addLog }) {
   const [categories, setCategories] = useState([]);
   const [selectedCat, setSelectedCat] = useState(null);
 
+  const [sortBy, setSortBy] = useState("_tsDateUpdated,DESC");
+
+  const SORT_OPTIONS = [
+    { label: "Latest", value: "_tsDateUpdated,DESC" },
+    { label: "Most Downloaded", value: "_nDownloadCount,DESC" },
+    { label: "Most Liked", value: "_nLikeCount,DESC" },
+    { label: "Featured", value: "_bIsFeatured,DESC" },
+    { label: "Oldest", value: "_tsDateUpdated,ASC" },
+  ];
+
   const GAME_ID = 7692;
   const PER_PAGE = 15;
 
@@ -390,68 +476,47 @@ function BrowseMods({ modsDir, addLog }) {
     fetchCats();
   }, []);
 
-  const fetchMods = async (search = "", p = 1, catId = selectedCat) => {
-  setLoading(true);
-  try {
-    if (search) {
-      let url = `https://gamebanana.com/apiv6/Mod/ByName?_sName=*${encodeURIComponent(search)}*&_idGameRow=${GAME_ID}`;
-      url += `&_csvProperties=_sName,_sProfileUrl,_aSubmitter,_tsDateUpdated,_aPreviewMedia,_sDescription,_aRootCategory,_aFiles` +
-             `&_nPerpage=${PER_PAGE}&_nPage=${p}&_sOrderBy=_tsDateUpdated,DESC`;
+  const fetchMods = async (search = "", p = 1, catId = selectedCat, sort = sortBy) => {
+    setLoading(true);
+    try {
+        let url = `https://gamebanana.com/apiv6/Mod/ByGame?_aGameRowIds[]=${GAME_ID}`;
+        url += `&_csvProperties=_sName,_idRow,_sProfileUrl,_aSubmitter,_tsDateUpdated,_aPreviewMedia,_sDescription,_aRootCategory`;
+        url += `&_nPerpage=${PER_PAGE}&_nPage=${p}&_sOrderBy=${sort}`;
+        if (catId) url += `&_aRootCategoryRowId=${catId}`;
+        if (search) url += `&_sName=*${encodeURIComponent(search)}*`;
 
-      const countUrl = `https://gamebanana.com/apiv11/Mod/Index?_nPage=1&_nPerpage=1&_aFilters%5BGeneric_Game%5D=${GAME_ID}&_sName=${encodeURIComponent(search)}`;
+        const countUrl = `https://gamebanana.com/apiv6/Mod/ByGame?_aGameRowIds[]=${GAME_ID}&_nPerpage=1&_nPage=1${catId ? `&_aRootCategoryRowId=${catId}` : ""}${search ? `&_sName=*${encodeURIComponent(search)}*` : ""}`;
 
-      const [res, countRes] = await Promise.all([fetch(url), fetch(countUrl)]);
-      const records = await res.json();
-      const countData = await countRes.json();
+        const [res, countRes] = await Promise.all([fetch(url), fetch(countUrl)]);
+        const records = await res.json();
+        const countData = await countRes.json();
 
-      setTotalCount(Math.ceil((countData._aMetadata?._nRecordCount || 0) / PER_PAGE));
-      setMods((records || []).map((mod) => ({
-        _idRow: mod._sProfileUrl?.split("/").pop(),
-        name: mod._sName,
-        owner: mod._aSubmitter?._sName,
-        avi: mod._aSubmitter?._sAvatarUrl,
-        upic: mod._aSubmitter?._sUpicUrl,
-        preview: Array.isArray(mod._aPreviewMedia) && mod._aPreviewMedia[0]
-          ? `${mod._aPreviewMedia[0]._sBaseUrl}/${mod._aPreviewMedia[0]._sFile220 ?? mod._aPreviewMedia[0]._sFile}`
-          : null,
-        cat: mod._aRootCategory?._sName,
-        caticon: mod._aRootCategory?._sIconUrl,
-        url: mod._sProfileUrl,
-        lastupdate: mod._tsDateUpdated,
-        files: mod._aFiles || {},
-        description: mod._sDescription || "",
-      })));
-    } else {
-      let url = catId
-        ? `https://gamebanana.com/apiv11/Mod/Index?_nPage=${p}&_nPerpage=${PER_PAGE}&_aFilters%5BGeneric_Game%5D=${GAME_ID}&_aFilters%5BGeneric_Category%5D=${catId}`
-        : `https://gamebanana.com/apiv11/Mod/Index?_nPage=${p}&_nPerpage=${PER_PAGE}&_aFilters%5BGeneric_Game%5D=${GAME_ID}`;
-
-      const res = await fetch(url);
-      const data = await res.json();
-
-      setTotalCount(Math.ceil((data._aMetadata?._nRecordCount || 0) / PER_PAGE));
-      setMods((data._aRecords || []).map((mod) => ({
-        _idRow: mod._idRow,
-        name: mod._sName,
-        owner: mod._aSubmitter?._sName,
-        avi: mod._aSubmitter?._sAvatarUrl,
-        upic: mod._aSubmitter?._sUpicUrl,
-        preview: mod._aPreviewMedia?._aImages?.[0]
-          ? `${mod._aPreviewMedia._aImages[0]._sBaseUrl}/${mod._aPreviewMedia._aImages[0]._sFile220 ?? mod._aPreviewMedia._aImages[0]._sFile}`
-          : null,
-        cat: mod._aRootCategory?._sName,
-        caticon: mod._aRootCategory?._sIconUrl,
-        url: mod._sProfileUrl,
-        lastupdate: mod._tsDateModified,
-        files: {},
-        description: "",
-      })));
+        setTotalCount(Math.ceil((countData?._aMetadata?._nRecordCount || 0) / PER_PAGE));
+        setMods((records || []).map((mod) => ({
+            _idRow: mod._idRow || mod._sProfileUrl?.split("/").pop(),
+            name: mod._sName,
+            owner: mod._aSubmitter?._sName,
+            avi: mod._aSubmitter?._sAvatarUrl,
+            upic: mod._aSubmitter?._sUpicUrl,
+            preview: Array.isArray(mod._aPreviewMedia)
+                ? mod._aPreviewMedia[0]
+                    ? `${mod._aPreviewMedia[0]._sBaseUrl}/${mod._aPreviewMedia[0]._sFile220 ?? mod._aPreviewMedia[0]._sFile}`
+                    : null
+                : mod._aPreviewMedia?._aImages?.[0]
+                    ? `${mod._aPreviewMedia._aImages[0]._sBaseUrl}/${mod._aPreviewMedia._aImages[0]._sFile220 ?? mod._aPreviewMedia._aImages[0]._sFile}`
+                    : null,
+            cat: mod._aRootCategory?._sName,
+            caticon: mod._aRootCategory?._sIconUrl,
+            catId: mod._aRootCategory?._idRow,
+            url: mod._sProfileUrl,
+            lastupdate: mod._tsDateUpdated || mod._tsDateModified,
+            description: mod._sDescription || "",
+        })));
+    } catch (e) {
+        addLog(`Error fetching mods: ${e}`);
+    } finally {
+        setLoading(false);
     }
-  } catch (e) {
-    addLog(`Error fetching mods: ${e}`);
-  } finally {
-    setLoading(false);
-  }
 };
 
   useEffect(() => { fetchMods(searchTerm, page); }, [page]);
@@ -469,6 +534,7 @@ function BrowseMods({ modsDir, addLog }) {
 const GMLOADER_ID = 36921;
 
 const handleDownload = async (mod) => {
+    if (!window.confirm(`Would you like to install "${mod.name}"?`)) return;
     setDownloading(mod._idRow);
     try {
         const res = await fetch(
@@ -512,6 +578,8 @@ const handleDownload = async (mod) => {
             fileName: file._sFile,
         });
 
+        if (isCYOP) await invoke("flatten_mod_dir", { modPath: `${targetModsPath}\\${mod.name}` });
+
         if (writeModJson) {
             const modJson = {
                 title: mod.name,
@@ -533,6 +601,7 @@ const handleDownload = async (mod) => {
         }
 
         addLog(`✓ Downloaded: ${mod.name}`);
+        window.alert(`"${mod.name}" has been correctly installed!`);
     } catch (e) {
         addLog(`Error downloading ${mod.name}: ${e}`);
     } finally {
@@ -554,6 +623,21 @@ const handleDownload = async (mod) => {
     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
     className="input input-bordered input-sm flex-1"
   />
+  <select
+    value={sortBy}
+    onChange={(e) => {
+        setSortBy(e.target.value);
+        setPage(1);
+        fetchMods(searchTerm, 1, selectedCat, e.target.value);
+    }}
+    className="select select-bordered select-sm w-auto"
+>
+    <option value="_tsDateUpdated,DESC">Latest</option>
+    <option value="_nDownloadCount,DESC">Most Downloaded</option>
+    <option value="_nLikeCount,DESC">Most Liked</option>
+    <option value="_bIsFeatured,DESC">Featured</option>
+    <option value="_tsDateUpdated,ASC">Oldest</option>
+</select>
   <CatDropdown
     categories={categories}
     selectedCat={selectedCat}
@@ -564,7 +648,6 @@ const handleDownload = async (mod) => {
   </button>
 </div>
 
-      {/* Mod list */}
       <div className="flex-1 overflow-auto">
         {loading && <p className="text-sm">Loading...</p>}
         {!loading && mods.length === 0 && <p className="text-sm">No mods found.</p>}

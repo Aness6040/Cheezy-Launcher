@@ -25,6 +25,7 @@ struct Settings {
     #[serde(default)]
     game_data_dir: String,
 }
+
 #[tauri::command]
 fn get_settings() -> Result<Settings, String> {
     let exe_dir = exe_dir()?;
@@ -56,9 +57,49 @@ fn get_settings() -> Result<Settings, String> {
         fs::write(&config_path, serde_json::to_string_pretty(&default).unwrap())
             .map_err(|e| e.to_string())?;
     }
+
     let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    let mut settings: Settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    // Auto-détecter si les paths sont vides
+    let mut changed = false;
+
+    if settings.game_dir.is_empty() {
+        if let Some(path) = steamlocate::SteamDir::locate()
+            .ok()
+            .and_then(|s| s.find_app(2231450).ok().flatten())
+            .map(|(app, lib)| {
+                lib.path()
+                    .join("steamapps")
+                    .join("common")
+                    .join(&app.install_dir)
+                    .to_string_lossy()
+                    .to_string()
+            })
+        {
+            settings.game_dir = path;
+            changed = true;
+        }
+    }
+
+    if settings.game_data_dir.is_empty() {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            settings.game_data_dir = Path::new(&appdata)
+                .join("PizzaTower_GM2")
+                .to_string_lossy()
+                .to_string();
+            changed = true;
+        }
+    }
+
+    if changed {
+        fs::write(&config_path, serde_json::to_string_pretty(&settings).unwrap())
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(settings)
 }
+
 fn exe_dir() -> Result<PathBuf, String> {
   let exe = std::env::current_exe().map_err(|e| e.to_string())?;
   exe
@@ -715,6 +756,59 @@ fn detect_game_data_dir() -> Result<String, String> {
     Err("Could not find AppData".to_string())
 }
 
+#[tauri::command]
+fn get_mod_base_dir(mod_path: String) -> Result<String, String> {
+    let path = Path::new(&mod_path);
+    let entries: Vec<_> = fs::read_dir(path)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .collect();
+
+    let files: Vec<_> = entries.iter().filter(|e| e.path().is_file()).collect();
+    let dirs: Vec<_> = entries.iter().filter(|e| e.path().is_dir()).collect();
+
+    if files.is_empty() && dirs.len() == 1 {
+        return Ok(dirs[0].path().to_string_lossy().to_string());
+    }
+
+    Ok(mod_path)
+}
+
+#[tauri::command]
+fn flatten_mod_dir(mod_path: String) -> Result<(), String> {
+    let mod_dir = Path::new(&mod_path);
+    let entries: Vec<_> = fs::read_dir(mod_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .collect();
+
+    let files: Vec<_> = entries.iter().filter(|e| e.path().is_file()).collect();
+    let dirs: Vec<_> = entries.iter().filter(|e| e.path().is_dir()).collect();
+
+    if files.is_empty() && dirs.len() == 1 {
+        let base_dir = dirs[0].path();
+
+        for entry in walkdir::WalkDir::new(&base_dir) {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let rel = entry.path().strip_prefix(&base_dir).map_err(|e| e.to_string())?;
+            let dest = mod_dir.join(rel);
+
+            if entry.path().is_dir() {
+                fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
+            }
+        }
+
+        fs::remove_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
@@ -750,6 +844,8 @@ pub fn run() {
       fetch_file,
       detect_game_dir,
       detect_game_data_dir,
+      get_mod_base_dir,
+      flatten_mod_dir,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
