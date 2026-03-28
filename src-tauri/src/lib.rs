@@ -28,6 +28,8 @@ struct Settings {
     prepatch: String,
     #[serde(default)]
     steam_api: bool,
+    #[serde(default)]
+    gmloader_enabled: bool,
 }
 
 #[tauri::command]
@@ -59,6 +61,7 @@ fn get_settings() -> Result<Settings, String> {
             game_data_dir,
             prepatch: String::new(),
             steam_api: true,
+            gmloader_enabled: false,
         };
         fs::write(&config_path, serde_json::to_string_pretty(&default).unwrap())
             .map_err(|e| e.to_string())?;
@@ -247,6 +250,8 @@ fn prepare_overwrite(
   overwrite_path: String,
   game_dir: String,
   prepatch: String,
+  gmloader_enabled: bool,
+  gml_mods_path: String,
   app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
   let log = |msg: &str| {
@@ -490,6 +495,41 @@ fn prepare_overwrite(
       }
     }
   }
+
+if gmloader_enabled {
+    let gml_path = Path::new(&gml_mods_path);
+    let mods_json = gml_path.join("mods.json");
+
+    if mods_json.exists() {
+        let content = fs::read_to_string(&mods_json).map_err(|e| e.to_string())?;
+        let gml_mods: Vec<(String, bool)> = serde_json::from_str(&content)
+            .map_err(|e| e.to_string())?;
+
+        for (mod_name, enabled) in gml_mods.iter().rev() {
+            if !enabled { continue; }
+
+            let mod_dir = gml_path.join(mod_name);
+            if !mod_dir.is_dir() { continue; }
+
+            log(&format!("  GML: applying {}", mod_name));
+
+            for entry in walkdir::WalkDir::new(&mod_dir) {
+                let entry = entry.map_err(|e| e.to_string())?;
+                if !entry.path().is_file() { continue; }
+
+                let rel = entry.path()
+                    .strip_prefix(&mod_dir)
+                    .map_err(|e| e.to_string())?;
+                let dest = overwrite_dir.join(rel);
+
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::copy(entry.path(), &dest).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+}
 
   log("Overwrite ready ✓");
   Ok(())

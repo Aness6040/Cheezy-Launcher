@@ -149,6 +149,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
     try {
       const vfsRoot = await invoke("get_main_dir", { folderName: "vfs_root" });
       const settingsData = await invoke("get_settings");
+      const gmlDir = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
 
       await invoke("prepare_overwrite", {
         mods: selectedMod ? [selectedMod] : [],
@@ -156,6 +157,8 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
         overwritePath: overwiteDir,
         gameDir: settingsData.game_dir,
         prepatch: settingsData.prepatch || "",
+        gmloaderEnabled: gmloaderEnabled,
+        gmlModsPath: gmlDir,
       });
       addLog(chalk.yellow("Mounting VFS..."));
 
@@ -195,6 +198,23 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
     setSelectedMod(prev => prev === modName ? null : modName);
   };
 
+  const [gmloaderEnabled, setGmloaderEnabled] = useState(false);
+
+useEffect(() => {
+    invoke("get_settings").then(s => setGmloaderEnabled(s.gmloader_enabled || false));
+}, []);
+
+const handleToggleGML = async (e) => {
+    const val = e.target.checked;
+    setGmloaderEnabled(val);
+    const exeDir = await invoke("get_main_dir", { folderName: "" });
+    const settings = await invoke("get_settings");
+    await invoke("edit_item", {
+        path: `${exeDir}\\settings.json`,
+        content: JSON.stringify({ ...settings, gmloader_enabled: val }, null, 2),
+    });
+};
+
   return (
     <div className="flex flex-col h-full">
       <div className="mb-3 flex gap-2 flex-shrink-0">
@@ -208,15 +228,24 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
         <button className="btn btn-sm btn-primary" onClick={() => setSearchTerm("")}>Clear</button>
       </div>
 
-      <div className="flex gap-3 mb-3 flex-shrink-0">
-        <button
-          onClick={handleRunFile}
-          disabled={operationRunning}
-          className={`btn btn-primary ${operationRunning ? "btn-disabled" : ""}`}
-        >
-          {operationRunning ? "Running..." : "Launch"}
-        </button>
-      </div>
+      <div className="flex gap-3 mb-3 flex-shrink-0 items-center">
+    <button
+        onClick={handleRunFile}
+        disabled={operationRunning}
+        className={`btn btn-primary ${operationRunning ? "btn-disabled" : ""}`}
+    >
+        {operationRunning ? "Running..." : "Launch"}
+    </button>
+    <label className="flex items-center gap-2 cursor-pointer">
+        <span className="text-sm">GMLoader</span>
+        <input
+            type="checkbox"
+            className="toggle toggle-primary toggle-sm"
+            checked={gmloaderEnabled}
+            onChange={handleToggleGML}
+        />
+    </label>
+</div>
 
       <div className="flex-1 overflow-auto">
         {loading && <p className="text-sm">Loading...</p>}
