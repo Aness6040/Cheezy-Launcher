@@ -167,6 +167,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
         overwritePath: overwiteDir,
         vfsRoot,
         steamApi: settingsData.steam_api || false,
+        gmloaderEnabled: gmloaderEnabled,
       });
       addLog(chalk.cyan("Launching game..."));
 

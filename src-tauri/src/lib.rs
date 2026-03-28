@@ -258,14 +258,14 @@ fn prepare_overwrite(
     let _ = app_handle.emit("prepare-log", msg.to_string());
   };
 
-  let overwrite_dir = Path::new(&overwrite_path);
+  let over = Path::new(&overwrite_path);
   let game_path = Path::new(&game_dir);
 
   log("Clearing overwrite folder...");
-  if overwrite_dir.exists() {
-    fs::remove_dir_all(overwrite_dir).map_err(|e| e.to_string())?;
+  if over.exists() {
+    fs::remove_dir_all(over).map_err(|e| e.to_string())?;
   }
-  fs::create_dir_all(overwrite_dir).map_err(|e| e.to_string())?;
+  fs::create_dir_all(over).map_err(|e| e.to_string())?;
 
   let xdelta = get_xdelta_path()?;
 
@@ -344,7 +344,7 @@ fn prepare_overwrite(
         .path()
         .strip_prefix(&mod_base)
         .map_err(|e| e.to_string())?;
-      let dest = overwrite_dir.join(rel);
+      let dest = over.join(rel);
       if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
       }
@@ -364,7 +364,7 @@ fn prepare_overwrite(
                 f.file_name().unwrap_or_default().to_string_lossy().to_lowercase() == "data.win"
             })).ok_or_else(|| "data.win not found for prepatch".to_string())?;
 
-            let dest = overwrite_dir.join("data.win");
+            let dest = over.join("data.win");
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -404,8 +404,8 @@ fn prepare_overwrite(
       // Candidats : overwrite/ en priorité, puis jeu (.po > brut)
       let mut candidates: Vec<PathBuf> = Vec::new();
 
-      if overwrite_dir.exists() {
-        for ow_entry in walkdir::WalkDir::new(overwrite_dir) {
+      if over.exists() {
+        for ow_entry in walkdir::WalkDir::new(over) {
           let ow_entry = ow_entry.map_err(|e| e.to_string())?;
           if !ow_entry.path().is_file() {
             continue;
@@ -430,7 +430,7 @@ fn prepare_overwrite(
       }
 
       for source in &candidates {
-        let (dest, use_tmp) = if source.starts_with(overwrite_dir) {
+        let (dest, use_tmp) = if source.starts_with(over) {
           (source.clone(), true)
         } else {
           let rel = if source
@@ -450,7 +450,7 @@ fn prepare_overwrite(
               .map(|r| r.to_path_buf())
               .unwrap_or_else(|_| source.file_name().unwrap().into())
           };
-          (overwrite_dir.join(rel), false)
+          (over.join(rel), false)
         };
 
         if let Some(parent) = dest.parent() {
@@ -477,7 +477,7 @@ fn prepare_overwrite(
           }
           log(&format!(
             "    ✓ Patched -> {}",
-            dest.strip_prefix(overwrite_dir).unwrap_or(&dest).display()
+            dest.strip_prefix(over).unwrap_or(&dest).display()
           ));
           patched = true;
           break;
@@ -520,7 +520,7 @@ if gmloader_enabled {
                 let rel = entry.path()
                     .strip_prefix(&mod_dir)
                     .map_err(|e| e.to_string())?;
-                let dest = overwrite_dir.join(rel);
+                let dest = over.join(rel);
 
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -593,6 +593,7 @@ fn mount_vfs(
   overwrite_path: String,
   vfs_root: String,
   steam_api: bool,
+  gmloader_enabled: bool,
 ) -> Result<(), String> {
   let game = Path::new(&game_dir);
   let over = Path::new(&overwrite_path);
@@ -639,6 +640,73 @@ fn mount_vfs(
     }
     fs::copy(entry.path(), &dest).map_err(|e| e.to_string())?;
   }
+
+  if gmloader_enabled {
+    let gmloader_src = exe_dir()?.join("deps").join("GMLoader");
+
+    if gmloader_src.exists() {
+        for entry in walkdir::WalkDir::new(&gmloader_src) {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let rel = entry.path().strip_prefix(&gmloader_src).map_err(|e| e.to_string())?;
+
+            if rel == Path::new("GMLoader.ini") {
+                let data_win_path = {
+                    let ow = over.join("data.win");
+                    if ow.exists() { ow } else { game.join("data.win") }
+                };
+
+                let mut content = fs::read_to_string(entry.path()).map_err(|e| e.to_string())?;
+                if data_win_path.exists() {
+                    let bytes = fs::read(&data_win_path).map_err(|e| e.to_string())?;
+                    let hash = xxhash_rust::xxh3::xxh3_64(&bytes);
+                    content = content
+                        .lines()
+                        .map(|line| {
+                            if line.starts_with("SupportedDataHash=") {
+                                format!("SupportedDataHash={}", hash)
+                            } else {
+                                line.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\r\n");
+                }
+
+                // Copier dans overwrite
+                let overwrite_ini_path = over.join("GMLoader.ini");
+                fs::write(&overwrite_ini_path, &content).map_err(|e| e.to_string())?;
+
+                // Symlink dans root
+                let vfs_ini_dest = root.join("GMLoader.ini");
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_file(&overwrite_ini_path, &vfs_ini_dest)
+                    .or_else(|_| fs::copy(&overwrite_ini_path, &vfs_ini_dest).map(|_| ()))
+                    .map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&overwrite_ini_path, &vfs_ini_dest)
+                    .map_err(|e| e.to_string())?;
+
+                continue;
+            }
+
+            // Tout le reste -> symlink direct dans root
+            let dest = root.join(rel);
+            if entry.path().is_dir() {
+                fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_file(entry.path(), &dest)
+                    .or_else(|_| fs::copy(entry.path(), &dest).map(|_| ()))
+                    .map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(entry.path(), &dest).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+}
 
   if steam_api {
         fs::write(root.join("steam_appid.txt"), "2231450")
