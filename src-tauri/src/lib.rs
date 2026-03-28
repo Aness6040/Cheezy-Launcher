@@ -26,6 +26,8 @@ struct Settings {
     game_data_dir: String,
     #[serde(default)]
     prepatch: String,
+    #[serde(default)]
+    steam_api: bool,
 }
 
 #[tauri::command]
@@ -56,6 +58,7 @@ fn get_settings() -> Result<Settings, String> {
             game_dir,
             game_data_dir,
             prepatch: String::new(),
+            steam_api: true,
         };
         fs::write(&config_path, serde_json::to_string_pretty(&default).unwrap())
             .map_err(|e| e.to_string())?;
@@ -549,6 +552,7 @@ fn mount_vfs(
   game_dir: String,
   overwrite_path: String,
   vfs_root: String,
+  steam_api: bool,
 ) -> Result<(), String> {
   let game = Path::new(&game_dir);
   let over = Path::new(&overwrite_path);
@@ -594,6 +598,11 @@ fn mount_vfs(
       fs::remove_file(&dest).map_err(|e| e.to_string())?;
     }
     fs::copy(entry.path(), &dest).map_err(|e| e.to_string())?;
+  }
+
+  if steam_api {
+        fs::write(root.join("steam_appid.txt"), "2231450")
+            .map_err(|e| e.to_string())?;
   }
 
   Ok(())
