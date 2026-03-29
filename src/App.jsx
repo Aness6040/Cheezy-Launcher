@@ -188,7 +188,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
       await invoke("kill_process", { name: "PizzaTower.exe" });
       launchPizzaTower();
     }
-  }, 200);
+  }, 100);
 
 } else {
   addLog(chalk.yellow("Launching Pizza Tower..."));
