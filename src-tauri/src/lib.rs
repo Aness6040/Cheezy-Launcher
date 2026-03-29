@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::{Manager, State};
 use tauri_plugin_single_instance::init as single_instance;
+use sysinfo::{System, ProcessesToUpdate};
+
 
 #[derive(Default)]
 struct AppState {
@@ -642,6 +644,34 @@ fn mount_vfs(
   }
 
   if gmloader_enabled {
+    let data_win_dest = over.join("data.win");
+
+if !data_win_dest.exists() {
+    let data_win_src = game.join("data.win");
+
+    if data_win_src.exists() {
+        // 1️⃣ Copier dans overwrite
+        fs::create_dir_all(data_win_dest.parent().unwrap())
+            .map_err(|e| e.to_string())?;
+        fs::copy(&data_win_src, &data_win_dest)
+            .map_err(|e| e.to_string())?;
+    }
+}
+
+let vfs_data_win_dest = root.join("data.win");
+
+if vfs_data_win_dest.exists() {
+    fs::remove_file(&vfs_data_win_dest).map_err(|e| e.to_string())?;
+}
+
+#[cfg(windows)]
+std::os::windows::fs::symlink_file(&data_win_dest, &vfs_data_win_dest)
+    .or_else(|_| fs::copy(&data_win_dest, &vfs_data_win_dest).map(|_| ())) // fallback
+    .map_err(|e| e.to_string())?;
+
+#[cfg(unix)]
+std::os::unix::fs::symlink(&data_win_dest, &vfs_data_win_dest)
+    .map_err(|e| e.to_string())?;
     let gmloader_src = exe_dir()?.join("deps").join("GMLoader");
 
     if gmloader_src.exists() {
@@ -664,6 +694,10 @@ fn mount_vfs(
                         .map(|line| {
                             if line.starts_with("SupportedDataHash=") {
                                 format!("SupportedDataHash={}", hash)
+                            } else if line.starts_with("CheckHash=") {
+                              "CheckHash=false".to_string()
+                            } else if line.starts_with("AutoGameStart=") {
+                              "AutoGameStart=true".to_string()
                             } else {
                                 line.to_string()
                             }
@@ -971,6 +1005,42 @@ fn list_prepatches() -> Result<Vec<String>, String> {
         .collect())
 }
 
+#[tauri::command]
+fn is_process_running(name: String) -> bool {
+    let mut system = System::new_all();
+
+    system.refresh_processes(ProcessesToUpdate::All, true);
+
+    let target = name.to_lowercase();
+
+    system.processes().values().any(|process| {
+        let proc_name = process.name().to_string_lossy().to_lowercase();
+
+        proc_name == target || proc_name.contains(&target)
+    })
+}
+
+#[tauri::command]
+fn kill_process(name: String) -> usize {
+    let mut system = System::new_all();
+    
+    system.refresh_processes(ProcessesToUpdate::All, true);
+
+    let target = name.to_lowercase();
+    let mut killed = 0;
+
+    for process in system.processes().values() {
+        let proc_name = process.name().to_string_lossy().to_lowercase();
+        if proc_name == target {
+            if process.kill() {
+                killed += 1;
+            }
+        }
+    }
+
+    killed
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
@@ -1009,6 +1079,8 @@ pub fn run() {
       get_mod_base_dir,
       flatten_mod_dir,
       list_prepatches,
+      is_process_running,
+      kill_process,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

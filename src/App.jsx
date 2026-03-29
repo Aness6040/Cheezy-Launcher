@@ -169,25 +169,56 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
         steamApi: settingsData.steam_api || false,
         gmloaderEnabled: gmloaderEnabled,
       });
-      addLog(chalk.cyan("Launching game..."));
+      if (gmloaderEnabled) {
+  await invoke("launch_game", {
+    vfsRoot,
+    exeName: "GMLoader.exe",
+    launchArgs: [],
+  });
 
-      await invoke("launch_game", {
-        vfsRoot,
-        exeName: "PizzaTower.exe",
-        launchArgs: settingsData.launch_args || [],
-      });
-      addLog(chalk.green("Game is running"));
+  addLog(chalk.green("Executing GMLoader process..."));
 
-      const poll = setInterval(async () => {
-        const running = await invoke("is_operation_running");
-        if (!running) {
-          clearInterval(poll);
-          addLog(chalk.yellow("Game closed, unmounting VFS..."));
-          await invoke("unmount_vfs", { vfsRoot });
-          addLog(chalk.green("VFS unmounted"));
-          setOperationRunning(false);
-        }
-      }, 2000);
+  const waitGmloader = setInterval(async () => {
+    const running = await invoke("is_operation_running");
+
+    if (!running) {
+      clearInterval(waitGmloader);
+
+      addLog(chalk.yellow("GMLoader Process finished, launching Pizza Tower..."));
+      await invoke("kill_process", { name: "PizzaTower.exe" });
+      launchPizzaTower();
+    }
+  }, 200);
+
+} else {
+  addLog(chalk.yellow("Launching Pizza Tower..."));
+  launchPizzaTower();
+}
+
+
+async function launchPizzaTower() {
+  await invoke("launch_game", {
+    vfsRoot,
+    exeName: "PizzaTower.exe",
+    launchArgs: settingsData.launch_args || [],
+  });
+
+  addLog(chalk.green("Game is running"));
+
+  const poll = setInterval(async () => {
+    const runningGame = await invoke("is_operation_running");
+
+    if (!runningGame) {
+      clearInterval(poll);
+
+      addLog(chalk.yellow("Game closed, unmounting VFS..."));
+      await invoke("unmount_vfs", { vfsRoot });
+
+      addLog(chalk.green("VFS unmounted"));
+      setOperationRunning(false);
+    }
+  }, 2000);
+}
 
     } catch (e) {
       addLog(chalk.red(`Error: ${e}`));
@@ -1107,6 +1138,11 @@ function BrowseMods({ modsDir, addLog }) {
 
 function LogPanel({ logs, onClear }) {
   const convert = new AnsiToHtml();
+  const logsEndRef = useRef(null);
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
 
   return (
     <div className="mt-4 p-3 bg-base-300 rounded-lg h-40 overflow-y-auto text-xs font-mono flex flex-col">
@@ -1123,6 +1159,7 @@ function LogPanel({ logs, onClear }) {
             dangerouslySetInnerHTML={{ __html: convert.toHtml(log) }}
           />
         ))}
+        <div ref={logsEndRef} />
       </div>
     </div>
   );
@@ -1137,7 +1174,7 @@ function App() {
 
   const addLog = (message) => {
     const time = new Date().toLocaleTimeString();
-    setLogs((prev) => [`[${time}] ${message}`, ...prev]);
+    setLogs((prev) => [...prev, `[${time}] ${message}`]);
   };
 
   useEffect(() => {
