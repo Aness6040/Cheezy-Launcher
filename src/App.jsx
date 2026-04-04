@@ -870,7 +870,7 @@ function CatDropdown({ categories, selectedCat, onSelect }) {
   );
 }
 
-function BrowseMods({ modsDir, addLog }) {
+function BrowseMods({ modsDir, addLog, onInstall }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1034,66 +1034,9 @@ function BrowseMods({ modsDir, addLog }) {
 };
 
 const handleDownload = async (file) => {
-  const { mod, description, rootCatId, rootCatParentId } = filePickerMod;
+  const { mod } = filePickerMod;
   setFilePickerMod(null);
-
-  if (!window.confirm(`Install "${mod.name}" — ${file._sFile}?`)) return;
-  setDownloading(mod._idRow);
-
-  try {
-    const isCYOP = CYOP_IDS.includes(rootCatId) || CYOP_IDS.includes(rootCatParentId);
-    const isGMLoader = rootCatId === GMLOADER_ID;
-
-    let targetModsPath = modsDir;
-    let writeModJson = true;
-
-    if (isCYOP) {
-      const settingsData = await invoke("get_settings");
-      targetModsPath = `${settingsData.game_data_dir}\\towers`;
-      writeModJson = false;
-    } else if (isGMLoader) {
-      targetModsPath = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
-      writeModJson = false;
-    }
-
-    addLog(`Downloading ${file._sFile}...`);
-    const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
-    await invoke("download_mod", {
-      modName: mod.name,
-      modsPath: targetModsPath,
-      fileBytes: bytes,
-      fileName: file._sFile,
-    });
-
-    if (isCYOP) await invoke("flatten_mod_dir", { modPath: `${targetModsPath}\\${mod.name}` });
-
-    if (writeModJson) {
-      const modJson = {
-        title: mod.name,
-        preview: mod.preview || "",
-        submitter: mod.owner,
-        avi: mod.avi,
-        upic: mod.upic,
-        caticon: mod.caticon,
-        cat: mod.cat,
-        description,
-        filedescription: file._sDescription || "",
-        homepage: mod.url,
-        lastupdate: new Date(mod.lastupdate * 1000).toISOString(),
-      };
-      await invoke("edit_item", {
-        path: `${targetModsPath}\\${mod.name}\\mod.json`,
-        content: JSON.stringify(modJson, null, 2),
-      });
-    }
-
-    addLog(`✓ Downloaded: ${mod.name}`);
-    window.alert(`"${mod.name}" has been correctly installed!`);
-  } catch (e) {
-    addLog(`Error downloading ${mod.name}: ${e}`);
-  } finally {
-    setDownloading(null);
-  }
+  await onInstall(mod._idRow, mod.name, file._idRow, filePickerMod);
 };
 
   return (
@@ -1256,6 +1199,104 @@ function App() {
     return () => window.removeEventListener("contextmenu", handleContextMenu);
   }, []);
 
+  useEffect(() => {
+  let unlisten;
+  onOpenUrl((urls) => {
+    for (const url of urls) {
+const match = url.match(/mmdl\/(\d+),([^,]+),(\d+)/);
+if (match) {
+  const [, fileId, , modId] = match;
+  handleDeepLinkInstall(modId, null, fileId);
+}
+    }
+  }).then(fn => { unlisten = fn; });
+  return () => { unlisten?.(); };
+}, [modsDir]);
+
+const handleDeepLinkInstall = async (modId, modName, fileId, prefetched = null) => {
+  addLog(`Installing ${modName}...`);
+  try {
+    let files, description, rootCatId, rootCatParentId, data;
+
+    if (prefetched) {
+      ({ files, description, rootCatId, rootCatParentId } = prefetched);
+      // reconstruire data pour le mod.json
+      data = { _aSubmitter: { _sName: prefetched.mod.owner }, _aRootCategory: { _sName: prefetched.mod.cat, _idRow: rootCatId }, _aPreviewMedia: null };
+    } else {
+      const res = await fetch(
+        `https://gamebanana.com/apiv11/Mod/${modId}?_csvProperties=_aFiles,_sDescription,_aRootCategory,_aSubmitter,_aPreviewMedia,_sName`
+      );
+      data = await res.json();
+      modName = data._sName || modName || modId;
+      files = data._aFiles ? Object.values(data._aFiles) : [];
+      description = data._sDescription || "";
+      rootCatId = data._aRootCategory?._idRow;
+      rootCatParentId = data._aRootCategory?._idParentCategoryRow;
+    }
+
+    const CYOP_IDS = [25679, 22962, 25680];
+    const GMLOADER_ID = 36921;
+
+    const fileList = Array.isArray(files) ? files : Object.values(files);
+    const file = fileList.find(f => String(f._idRow) === String(fileId)) ?? fileList[0];
+    if (!file) { addLog(`No file found for ${modName}`); return; }
+
+    const isCYOP = CYOP_IDS.includes(rootCatId) || CYOP_IDS.includes(rootCatParentId);
+    const isGMLoader = rootCatId === GMLOADER_ID;
+
+    let targetModsPath = modsDir;
+    let writeModJson = true;
+
+    if (isCYOP) {
+      const settingsData = await invoke("get_settings");
+      targetModsPath = `${settingsData.game_data_dir}\\towers`;
+      writeModJson = false;
+    } else if (isGMLoader) {
+      targetModsPath = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
+      writeModJson = false;
+    }
+
+    if (!window.confirm(`Install "${modName}"?`)) return;
+
+    addLog(`Downloading ${file._sFile}...`);
+    const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
+    await invoke("download_mod", {
+      modName,
+      modsPath: targetModsPath,
+      fileBytes: bytes,
+      fileName: file._sFile,
+    });
+
+    if (isCYOP) await invoke("flatten_mod_dir", { modPath: `${targetModsPath}\\${modName}` });
+
+    if (writeModJson) {
+      const preview = prefetched?.mod?.preview || (() => {
+        const img = data._aPreviewMedia?._aImages?.[0];
+        return img ? `${img._sBaseUrl}/${img._sFile220 ?? img._sFile}` : "";
+      })();
+      const modJson = {
+        title: modName,
+        preview,
+        submitter: prefetched?.mod?.owner || data._aSubmitter?._sName || "",
+        cat: prefetched?.mod?.cat || data._aRootCategory?._sName || "",
+        description,
+        filedescription: file._sDescription || "",
+        homepage: prefetched?.mod?.url || `https://gamebanana.com/mods/${modId}`,
+        lastupdate: new Date().toISOString(),
+      };
+      await invoke("edit_item", {
+        path: `${targetModsPath}\\${modName}\\mod.json`,
+        content: JSON.stringify(modJson, null, 2),
+      });
+    }
+
+    addLog(`✓ Installed: ${modName}`);
+    window.alert(`"${modName}" installed successfully!`);
+  } catch (e) {
+    addLog(`Install error: ${e}`);
+  }
+};
+
   return (
     <div>
       <div role="tablist" className="tabs tabs-border flex justify-between">
@@ -1270,7 +1311,7 @@ function App() {
         <div className="flex-1 overflow-auto" style={{ height: `calc(100vh - ${(activeTab === "tab1" || activeTab === "tab2") ? "270px" : "90px"})` }}>
           {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} addLog={addLog} logs={logs} />}
           {activeTab === "tab2" && <Tab2 modsDir={modsDir} addLog={addLog} />}
-          {activeTab === "tab3" && <BrowseMods modsDir={modsDir} addLog={addLog} />}
+          {activeTab === "tab3" && <BrowseMods modsDir={modsDir} addLog={addLog} onInstall={handleDeepLinkInstall} />}
           {activeTab === "settings" && <SettingsTab onSave={(s) => setSettings(s)} />}
         </div>
         {(activeTab === "tab1" || activeTab === "tab2") && (
