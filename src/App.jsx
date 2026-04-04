@@ -140,7 +140,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
     return () => clearInterval(interval);
   }, [modsDir]);
 
-  const handleRunFile = async () => {
+  const handleRunFile = async (mode = "full") => {
     if (operationRunning) return;
 
     setOperationRunning(true);
@@ -150,7 +150,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
       const vfsRoot = await invoke("get_main_dir", { folderName: "vfs_root" });
       const settingsData = await invoke("get_settings");
       const gmlDir = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
-
+      if (mode !== "launch") {
       await invoke("prepare_overwrite", {
         mods: selectedMod ? [selectedMod] : [],
         modsPath: modsDir,
@@ -160,6 +160,9 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
         gmloaderEnabled: gmloaderEnabled,
         gmlModsPath: gmlDir,
       });
+      }
+      if (mode === "over") setOperationRunning(false);
+      if (mode !== "over") {
       addLog(chalk.yellow("Mounting VFS..."));
 
       await invoke("mount_vfs", {
@@ -194,6 +197,7 @@ function Tab1({ modsDir, overwiteDir, addLog, logs}) {
   addLog(chalk.yellow("Launching Pizza Tower..."));
   launchPizzaTower();
 }
+      }
 
 
 async function launchPizzaTower() {
@@ -261,13 +265,22 @@ const handleToggleGML = async (e) => {
       </div>
 
       <div className="flex gap-3 mb-3 flex-shrink-0 items-center">
-    <button
-        onClick={handleRunFile}
-        disabled={operationRunning}
-        className={`btn btn-primary ${operationRunning ? "btn-disabled" : ""}`}
-    >
-        {operationRunning ? "Running..." : "Launch"}
-    </button>
+    <div className={`join ${operationRunning ? "opacity-50 pointer-events-none" : ""}`}>
+  <button
+    onClick={handleRunFile}
+    disabled={operationRunning}
+    className="btn btn-primary join-item"
+  >
+    {operationRunning ? "Running..." : "Launch"}
+  </button>
+  <div className="dropdown dropdown-bottom">
+    <button tabIndex={0} className="btn btn-primary join-item px-2" disabled={operationRunning}>▾</button>
+    <ul tabIndex={0} className="dropdown-content menu bg-base-100 rounded-box shadow-lg z-50 w-40 mt-1">
+      <li className={!selectedMod ? "opacity-50 pointer-events-none" : ""}><a onClick={() => { if (!selectedMod) return; document.activeElement.blur(); handleRunFile("over"); }}>Overwrite Only</a></li>
+      <li><a onClick={() => { document.activeElement.blur(); handleRunFile("launch"); }}>Launch Only</a></li>
+    </ul>
+  </div>
+</div>
     <label className="flex items-center gap-2 cursor-pointer">
         <span className="text-sm">GMLoader</span>
         <input
@@ -679,7 +692,7 @@ function SettingsTab({ onSave }) {
 
   const handleBrowse = async (field) => {
     try {
-        const path = await open({ directory: true, multiple: false });
+        const path = await open({ directory: true, multiple: false, defaultPath: settings[field] || undefined, });
         if (path) setSettings(prev => ({ ...prev, [field]: path }));
     } catch (e) {}
 };
