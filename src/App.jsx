@@ -236,6 +236,8 @@ async function launchPizzaTower() {
 
   const [gmloaderEnabled, setGmloaderEnabled] = useState(false);
 
+  const useMods = selectedMod || gmloaderEnabled
+
 useEffect(() => {
     invoke("get_settings").then(s => setGmloaderEnabled(s.gmloader_enabled || false));
 }, []);
@@ -276,7 +278,7 @@ const handleToggleGML = async (e) => {
   <div className="dropdown dropdown-bottom dropdown-center">
     <button tabIndex={0} className="btn btn-primary join-item px-2" disabled={operationRunning}>▾</button>
     <ul tabIndex={0} className="dropdown-content menu bg-base-100 rounded-box shadow-lg z-50 w-40 mt-1">
-      <li className={!selectedMod ? "opacity-50 pointer-events-none" : ""}><a onClick={() => { if (!selectedMod) return; document.activeElement.blur(); handleRunFile("over"); }}>Overwrite Only</a></li>
+      <li className={!useMods ? "opacity-50 pointer-events-none" : ""}><a onClick={() => { if (!useMods) return; document.activeElement.blur(); handleRunFile("over"); }}>Overwrite Only</a></li>
       <li><a onClick={() => { document.activeElement.blur(); handleRunFile("launch"); }}>Launch Only</a></li>
     </ul>
   </div>
