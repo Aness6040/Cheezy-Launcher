@@ -879,6 +879,7 @@ function BrowseMods({ modsDir, addLog }) {
   const [downloading, setDownloading] = useState(null);
   const [categories, setCategories] = useState([]);
   const [selectedCat, setSelectedCat] = useState(null);
+  const [filePickerMod, setFilePickerMod] = useState(null);
 
   const [sortBy, setSortBy] = useState("_tsDateUpdated,DESC");
 
@@ -1007,83 +1008,96 @@ function BrowseMods({ modsDir, addLog }) {
     fetchMods("", 1, catId);
   };
 
-  const handleDownload = async (mod) => {
-    if (!window.confirm(`Would you like to install "${mod.name}"?`)) return;
-    setDownloading(mod._idRow);
-    try {
-      const res = await fetch(
-        `https://gamebanana.com/apiv11/Mod/${mod._idRow}?_csvProperties=_aFiles,_sDescription,_aRootCategory`
-      );
-      const data = await res.json();
-      const files = data._aFiles || {};
-      const description = data._sDescription || "";
-      const rootCatId = data._aRootCategory?._idRow;
-      const rootCatParentId = data._aRootCategory?._idParentCategoryRow;
+  const handlePickFile = async (mod) => {
+  try {
+    const res = await fetch(
+      `https://gamebanana.com/apiv11/Mod/${mod._idRow}?_csvProperties=_aFiles,_sDescription,_aRootCategory`
+    );
+    const data = await res.json();
+    const files = data._aFiles || {};
 
-      const isCYOP = CYOP_IDS.includes(rootCatId) || CYOP_IDS.includes(rootCatParentId);
-      const isGMLoader = rootCatId === GMLOADER_ID;
-
-      if (!files || Object.keys(files).length === 0) {
-        addLog(`No files for ${mod.name}`);
-        return;
-      }
-
-      const file = Object.values(files)[0];
-
-      let targetModsPath = modsDir;
-      let writeModJson = true;
-
-      if (isCYOP) {
-        const settingsData = await invoke("get_settings");
-        targetModsPath = `${settingsData.game_data_dir}\\towers`;
-        writeModJson = false;
-      } else if (isGMLoader) {
-        targetModsPath = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
-        writeModJson = false;
-      }
-
-      addLog(`Downloading ${file._sFile}...`);
-
-      const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
-      await invoke("download_mod", {
-        modName: mod.name,
-        modsPath: targetModsPath,
-        fileBytes: bytes,
-        fileName: file._sFile,
-      });
-
-      if (isCYOP) await invoke("flatten_mod_dir", { modPath: `${targetModsPath}\\${mod.name}` });
-
-      if (writeModJson) {
-        const modJson = {
-          title: mod.name,
-          preview: mod.preview || "",
-          submitter: mod.owner,
-          avi: mod.avi,
-          upic: mod.upic,
-          caticon: mod.caticon,
-          cat: mod.cat,
-          description,
-          filedescription: file._sDescription || "",
-          homepage: mod.url,
-          lastupdate: new Date(mod.lastupdate * 1000).toISOString(),
-        };
-        await invoke("edit_item", {
-          path: `${targetModsPath}\\${mod.name}\\mod.json`,
-          content: JSON.stringify(modJson, null, 2),
-        });
-      }
-
-      addLog(`✓ Downloaded: ${mod.name}`);
-      window.alert(`"${mod.name}" has been correctly installed!`);
-    } catch (e) {
-      addLog(`Error downloading ${mod.name}: ${e}`);
-    } finally {
-      setDownloading(null);
+    if (Object.keys(files).length === 0) {
+      addLog(`No files for ${mod.name}`);
+      return;
     }
-  };
+
+    setFilePickerMod({
+      mod,
+      files: Object.values(files),
+      description: data._sDescription || "",
+      rootCatId: data._aRootCategory?._idRow,
+      rootCatParentId: data._aRootCategory?._idParentCategoryRow,
+    });
+  } catch (e) {
+    addLog(`Error fetching files: ${e}`);
+  }
+};
+
+const handleDownload = async (file) => {
+  const { mod, description, rootCatId, rootCatParentId } = filePickerMod;
+  setFilePickerMod(null);
+
+  if (!window.confirm(`Install "${mod.name}" — ${file._sFile}?`)) return;
+  setDownloading(mod._idRow);
+
+  try {
+    const isCYOP = CYOP_IDS.includes(rootCatId) || CYOP_IDS.includes(rootCatParentId);
+    const isGMLoader = rootCatId === GMLOADER_ID;
+
+    let targetModsPath = modsDir;
+    let writeModJson = true;
+
+    if (isCYOP) {
+      const settingsData = await invoke("get_settings");
+      targetModsPath = `${settingsData.game_data_dir}\\towers`;
+      writeModJson = false;
+    } else if (isGMLoader) {
+      targetModsPath = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
+      writeModJson = false;
+    }
+
+    addLog(`Downloading ${file._sFile}...`);
+    const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
+    await invoke("download_mod", {
+      modName: mod.name,
+      modsPath: targetModsPath,
+      fileBytes: bytes,
+      fileName: file._sFile,
+    });
+
+    if (isCYOP) await invoke("flatten_mod_dir", { modPath: `${targetModsPath}\\${mod.name}` });
+
+    if (writeModJson) {
+      const modJson = {
+        title: mod.name,
+        preview: mod.preview || "",
+        submitter: mod.owner,
+        avi: mod.avi,
+        upic: mod.upic,
+        caticon: mod.caticon,
+        cat: mod.cat,
+        description,
+        filedescription: file._sDescription || "",
+        homepage: mod.url,
+        lastupdate: new Date(mod.lastupdate * 1000).toISOString(),
+      };
+      await invoke("edit_item", {
+        path: `${targetModsPath}\\${mod.name}\\mod.json`,
+        content: JSON.stringify(modJson, null, 2),
+      });
+    }
+
+    addLog(`✓ Downloaded: ${mod.name}`);
+    window.alert(`"${mod.name}" has been correctly installed!`);
+  } catch (e) {
+    addLog(`Error downloading ${mod.name}: ${e}`);
+  } finally {
+    setDownloading(null);
+  }
+};
 
   return (
+    <>
     <div className="flex flex-col h-full gap-3">
       <div className="flex gap-2 flex-shrink-0">
         <input
@@ -1131,7 +1145,7 @@ function BrowseMods({ modsDir, addLog }) {
                   <div className="mt-auto flex gap-2 pt-2">
                     <a href={mod.url} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-outline flex-1">View</a>
                     <button
-                      onClick={() => handleDownload(mod)}
+                      onClick={() => handlePickFile(mod)}
                       disabled={downloading !== null}
                       className="btn btn-xs btn-primary flex-1"
                     >
@@ -1153,6 +1167,35 @@ function BrowseMods({ modsDir, addLog }) {
         </div>
       )}
     </div>
+    {filePickerMod && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-base-100 rounded-box shadow-xl p-5 w-96 max-h-[80vh] flex flex-col gap-3">
+      <div className="flex justify-between items-center">
+        <h3 className="font-bold text-sm">{filePickerMod.mod.name}</h3>
+        <button className="btn btn-xs btn-ghost" onClick={() => setFilePickerMod(null)}>✕</button>
+      </div>
+      <p className="text-xs text-base-content/60">Select a version to install:</p>
+      <div className="flex flex-col gap-2 overflow-y-auto">
+        {filePickerMod.files.map((file, i) => (
+          <div key={i} className="flex items-center justify-between border border-base-300 rounded p-2 gap-2">
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-medium truncate">{file._sFile}</span>
+              {file._sDescription && <span className="text-xs text-base-content/50 truncate">{file._sDescription}</span>}
+              <span className="text-xs text-base-content/40">{(file._nFilesize / 1024).toFixed(1)} KB</span>
+            </div>
+            <button
+              onClick={() => handleDownload(file)}
+              className="btn btn-xs btn-primary flex-shrink-0"
+            >
+              Install
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
+</>
   );
 }
 
