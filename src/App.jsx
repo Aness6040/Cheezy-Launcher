@@ -13,11 +13,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
-
-await onOpenUrl((urls) => {
-  console.log('deep link:', urls);
-});
-
 const themes = [
   "light",
   "dark"
@@ -433,7 +428,7 @@ function Tab2({ modsDir, addLog }) {
 
       setMods(ordered);
     } catch (e) {
-      addLog("Error loading GML mods");
+      // addLog("Error loading GML mods"); useless
     } finally {
       setLoading(false);
     }
