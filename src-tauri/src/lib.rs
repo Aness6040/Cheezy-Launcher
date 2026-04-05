@@ -33,6 +33,18 @@ struct Settings {
     gmloader_enabled: bool,
 }
 
+fn detect_archive_type(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]) || bytes.starts_with(&[0x50, 0x4B, 0x05, 0x06]) {
+        "zip"
+    } else if bytes.starts_with(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
+        "7z"
+    } else if bytes.starts_with(&[0x52, 0x61, 0x72, 0x21]) {
+        "rar"
+    } else {
+        "unknown"
+    }
+}
+
 #[tauri::command]
 fn get_settings() -> Result<Settings, String> {
     let exe_dir = exe_dir()?;
@@ -868,7 +880,8 @@ fn download_mod(
     let mod_dir = Path::new(&mods_path).join(&mod_name);
     fs::create_dir_all(&mod_dir).map_err(|e| e.to_string())?;
 
-    if file_name.ends_with(".zip") {
+    let archive_type = detect_archive_type(&file_bytes);
+    if archive_type == "zip" {
         let cursor = Cursor::new(file_bytes);
         let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
         for i in 0..archive.len() {
@@ -884,12 +897,12 @@ fn download_mod(
                 std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
             }
         }
-    } else if file_name.ends_with(".7z") {
+    } else if archive_type == "7z" {
         let tmp_path = Path::new(&mods_path).join(&file_name);
         fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
         fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
-    } else if file_name.ends_with(".rar") {
+    } else if archive_type == "rar" {
         let tmp_path = Path::new(&mods_path).join(&file_name);
         fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
@@ -897,6 +910,76 @@ fn download_mod(
     } else {
         let out_path = mod_dir.join(&file_name);
         fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn install_local_mod(mod_name: String, mods_path: String, file_path: String) -> Result<(), String> {
+    let file_bytes = fs::read(&file_path).map_err(|e| e.to_string())?;
+    let file_name = Path::new(&file_path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let mod_dir = Path::new(&mods_path).join(&mod_name);
+    fs::create_dir_all(&mod_dir).map_err(|e| e.to_string())?;
+
+    let archive_type = detect_archive_type(&file_bytes);
+
+    if archive_type == "zip" {
+        use std::io::Cursor;
+        let cursor = Cursor::new(file_bytes);
+        let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let out_path = mod_dir.join(file.name());
+            if file.is_dir() {
+                fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                let mut out = fs::File::create(&out_path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+            }
+        }
+    } else if archive_type == "7z" || archive_type == "rar" {
+        let tmp_path = Path::new(&mods_path).join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else {
+        let out_path = mod_dir.join(&file_name);
+        fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
+    }
+
+    // Flatten si un seul sous-dossier
+    let entries: Vec<_> = fs::read_dir(&mod_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .collect();
+    let files: Vec<_> = entries.iter().filter(|e| e.path().is_file()).collect();
+    let dirs: Vec<_> = entries.iter().filter(|e| e.path().is_dir()).collect();
+
+    if files.is_empty() && dirs.len() == 1 {
+        let base_dir = dirs[0].path();
+        for entry in walkdir::WalkDir::new(&base_dir) {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let rel = entry.path().strip_prefix(&base_dir).map_err(|e| e.to_string())?;
+            let dest = mod_dir.join(rel);
+            if entry.path().is_dir() {
+                fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
+            }
+        }
+        fs::remove_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -1103,6 +1186,7 @@ pub fn run() {
             is_operation_running,
             force_stop_game,
             download_mod,
+            install_local_mod,
             fetch_file,
             detect_game_dir,
             detect_game_data_dir,

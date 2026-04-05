@@ -13,6 +13,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { confirm } from '@tauri-apps/plugin-dialog';
 const themes = [
   "light",
   "dark"
@@ -109,13 +110,33 @@ function ModCard({ modPath, modName, selected = false, onSelect, contextMenu, se
   );
 }
 
-function Tab1({ modsDir, overwiteDir, addLog, logs}) {
+function Tab1({ modsDir, overwiteDir, addLog, logs, onDropInstall}) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMod, setSelectedMod] = useState(null);
   const [operationRunning, setOperationRunning] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
+
+  const [isDragOver, setIsDragOver] = useState(false);
+
+useEffect(() => {
+  const unlistenEnter = listen("tauri://drag-enter", () => setIsDragOver(true));
+  const unlistenLeave = listen("tauri://drag-leave", () => setIsDragOver(false));
+  const unlistenDrop = listen("tauri://drag-drop", async (event) => {
+    setIsDragOver(false);
+    for (const path of event.payload.paths) {
+      if (/\.(zip|rar|7z)$/i.test(path)) {
+        await onDropInstall(path);
+      }
+    }
+  });
+  return () => {
+    unlistenEnter.then(f => f());
+    unlistenLeave.then(f => f());
+    unlistenDrop.then(f => f());
+  };
+}, [modsDir]);
 
   const fetchMods = () => {
     if (!modsDir) return;
@@ -294,7 +315,14 @@ const handleToggleGML = async (e) => {
     </label>
 </div>
 
-      <div className="flex-1 overflow-auto">
+      <div
+  className={`flex flex-col h-full transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-lg" : ""}`}
+>
+  {isDragOver && (
+    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+      <p className="text-primary font-bold text-lg">Drop mod to install</p>
+    </div>
+  )}
         {loading && <p className="text-sm">Loading...</p>}
         {!loading && mods.length === 0 && <p className="text-sm">No mods found in {modsDir}</p>}
         {!loading && mods.length > 0 && (
@@ -390,7 +418,7 @@ function SortableGMLItem({ id, index, enabled, onToggle, selected, selectMode, o
 }
 
 
-function Tab2({ modsDir, addLog }) {
+function Tab2({ modsDir, addLog, onDropInstall }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState(null);
@@ -398,6 +426,26 @@ function Tab2({ modsDir, addLog }) {
   const [selectMode, setSelectMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const isDragging = useRef(false);
+
+  const [isDragOver, setIsDragOver] = useState(false);
+
+useEffect(() => {
+  const unlistenEnter = listen("tauri://drag-enter", () => setIsDragOver(true));
+  const unlistenLeave = listen("tauri://drag-leave", () => setIsDragOver(false));
+  const unlistenDrop = listen("tauri://drag-drop", async (event) => {
+    setIsDragOver(false);
+    for (const path of event.payload.paths) {
+      if (/\.(zip|rar|7z)$/i.test(path)) {
+        await onDropInstall(path);
+      }
+    }
+  });
+  return () => {
+    unlistenEnter.then(f => f());
+    unlistenLeave.then(f => f());
+    unlistenDrop.then(f => f());
+  };
+}, [modsDir]);
 
   const gmlDir = modsDir?.replace(/[/\\]mods$/, "\\mods_GML");
   const modsJsonPath = `${gmlDir}\\mods.json`;
@@ -574,7 +622,14 @@ function Tab2({ modsDir, addLog }) {
     .filter(({ name }) => name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="flex flex-col h-full gap-3">
+    <div
+  className={`flex flex-col h-full gap-3 transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-lg" : ""}`}
+>
+  {isDragOver && (
+    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+      <p className="text-primary font-bold text-lg">Drop mod to install</p>
+    </div>
+  )}
       <div className="flex items-center justify-between flex-shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold">GMLoader Mods</p>
@@ -1167,6 +1222,7 @@ function LogPanel({ logs, onClear }) {
 }
 
 function App() {
+  const sanitizeName = (name) => name.replace(/[<>:"/\\|?*]/g, "_").trim();
   const [activeTab, setActiveTab] = useState("tab1");
   const [modsDir, setModsDir] = useState(null);
   const [overwiteDir, setOverwiteDir] = useState(null);
@@ -1201,15 +1257,15 @@ function App() {
 const match = url.match(/mmdl\/(\d+),([^,]+),(\d+)/);
 if (match) {
   const [, fileId, , modId] = match;
-  handleDeepLinkInstall(modId, null, fileId);
+  handleGBInstall(modId, null, fileId);
 }
     }
   }).then(fn => { unlisten = fn; });
   return () => { unlisten?.(); };
 }, [modsDir]);
 
-const handleDeepLinkInstall = async (modId, modName, fileId, prefetched = null) => {
-  addLog(`Installing ${modName}...`);
+const handleGBInstall = async (modId, modName, fileId, prefetched = null) => {
+  addLog(`Trying to install ${modName}...`);
   try {
     let files, description, rootCatId, rootCatParentId, data;
 
@@ -1251,7 +1307,7 @@ const handleDeepLinkInstall = async (modId, modName, fileId, prefetched = null) 
       writeModJson = false;
     }
 
-    if (!window.confirm(`Install "${modName}"?`)) return;
+    if (!await confirm(`Install "${modName}"?`, { title: "Install Mod", kind: "info" })) return;
 
     addLog(`Downloading ${file._sFile}...`);
     const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
@@ -1292,6 +1348,22 @@ const handleDeepLinkInstall = async (modId, modName, fileId, prefetched = null) 
   }
 };
 
+const handleDropInstall = async (filePath, targetDir) => {
+  const fileName = filePath.split(/[\\/]/).pop();
+  const modName = sanitizeName(fileName.replace(/\.(zip|rar|7z)$/i, ""));
+  try {
+    addLog(`Installing dropped mod: ${modName}...`);
+    await invoke("install_local_mod", {
+      modName,
+      modsPath: targetDir,
+      filePath,
+    });
+    addLog(`✓ Installed: ${modName}`);
+  } catch (e) {
+    addLog(`Drop install error: ${e}`);
+  }
+};
+
   return (
     <div>
       <div role="tablist" className="tabs tabs-border flex justify-between">
@@ -1304,9 +1376,9 @@ const handleDeepLinkInstall = async (modId, modName, fileId, prefetched = null) 
       </div>
       <div className="flex-1 p-4 bg-base-200 rounded-lg">
         <div className="flex-1 overflow-auto" style={{ height: `calc(100vh - ${(activeTab === "tab1" || activeTab === "tab2") ? "270px" : "90px"})` }}>
-          {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} addLog={addLog} logs={logs} />}
-          {activeTab === "tab2" && <Tab2 modsDir={modsDir} addLog={addLog} />}
-          {activeTab === "tab3" && <BrowseMods modsDir={modsDir} addLog={addLog} onInstall={handleDeepLinkInstall} />}
+          {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} addLog={addLog} logs={logs} onDropInstall={(p) => handleDropInstall(p, modsDir)}/>}
+          {activeTab === "tab2" && <Tab2 modsDir={modsDir} addLog={addLog} onDropInstall={(p) => handleDropInstall(p, modsDir.replace(/[/\\]mods$/, "\\mods_GML"))}/>}
+          {activeTab === "tab3" && <BrowseMods modsDir={modsDir} addLog={addLog} onInstall={handleGBInstall} />}
           {activeTab === "settings" && <SettingsTab onSave={(s) => setSettings(s)} />}
         </div>
         {(activeTab === "tab1" || activeTab === "tab2") && (
