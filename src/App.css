@@ -1,20 +1,25 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
 @plugin "daisyui/theme" {
   name: "light";
-  --color-primary: oklch(55% 0.163 48.998);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(42% 0.095 57.708);
-  --color-secondary-content: oklch(94% 0.028 342.258);
-  --color-accent: oklch(47% 0.157 37.304);
-  --color-accent-content: oklch(26% 0.079 36.259);
+
+  --color-primary: rgb(217, 111, 44);
+  --color-primary-content: rgb(245, 246, 250);
+  --color-secondary: rgb(138, 102, 68);
+  --color-secondary-content: rgb(138, 102, 68);
+
+  --color-accent: rgb(196, 83, 63);
+  --color-accent-content: rgb(102, 51, 36);
 }
+
 @plugin "daisyui/theme" {
   name: "dark";
-  --color-primary: oklch(37% 0.01 67.558);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(26% 0.007 34.298);
-  --color-secondary-content: oklch(94% 0.028 342.258);
-  --color-accent: oklch(40% 0.123 38.172);
-  --color-accent-content: oklch(26% 0.079 36.259);
+
+  --color-primary: rgb(95, 94, 85);
+  --color-primary-content: rgb(245, 246, 250);
+  --color-secondary: rgb(70, 68, 66);
+  --color-secondary-content: rgb(180, 175, 170);
+  --color-accent: rgb(170, 85, 65);
+  --color-accent-content: rgb(102, 51, 36);
 }

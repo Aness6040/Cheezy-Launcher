@@ -82,7 +82,7 @@ function ModCard({ modPath, modName, selected = false, onSelect, contextMenu, se
   return (
     <>
       <div
-        className={`rounded border transition-colors shadow-md overflow-hidden cursor-pointer
+        className={`border rounded-box transition-colors shadow-md overflow-hidden cursor-pointer
                     ${selected ? "border-primary bg-primary/20" : "border-base-300 hover:border-primary"}`}
         onClick={onSelect}
         onContextMenu={handleContextMenu}
@@ -313,7 +313,7 @@ const handleToggleGML = async (e) => {
 </div>
 
       <div
-  className={`flex flex-col h-full transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-lg" : ""}`}
+  className={`flex flex-col h-full transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-box" : ""}`}
 >
   {isDragOver && (
     <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
@@ -321,7 +321,7 @@ const handleToggleGML = async (e) => {
     </div>
   )}
         {loading && <p className="text-sm">Loading...</p>}
-        {!loading && mods.length === 0 && <p className="text-sm">No mods found in {modsDir}</p>}
+        {!loading && mods.length === 0 && <div className="text-center text-xl"><h1>Drag your mod file here</h1><p className="text-sm text-secondary-content">No mods found in {modsDir}</p></div>}
         {!loading && mods.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {filteredMods.map((mod) => (
@@ -394,7 +394,7 @@ function SortableGMLItem({ id, index, enabled, onToggle, selected, selectMode, o
       style={style}
       onClick={onClick}
       onContextMenu={handleContextMenu}
-      className={`flex items-center gap-3 p-3 rounded border transition-colors cursor-pointer
+      className={`flex items-center gap-3 p-3 rounded-box border transition-colors cursor-pointer
         ${isDragging ? "border-primary bg-primary/10"
           : selected ? "border-primary bg-primary/20"
           : enabled ? "border-base-300 bg-base-100 hover:border-primary"
@@ -620,7 +620,7 @@ useEffect(() => {
 
   return (
     <div
-  className={`flex flex-col h-full gap-3 transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-lg" : ""}`}
+  className={`flex flex-col h-full gap-3 transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-box" : ""}`}
 >
   {isDragOver && (
     <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
@@ -634,6 +634,7 @@ useEffect(() => {
             <span className="badge badge-primary badge-sm">{selected.length} selected</span>
           )}
         </div>
+         {loading &&
         <div className="flex gap-2 flex-wrap justify-end items-center">
           <input
             type="text"
@@ -661,11 +662,12 @@ useEffect(() => {
             {selected.length === mods.length && mods.length > 0 ? "Deselect All" : "Select All"}
           </button>
         </div>
+}
       </div>
 
       <div className="flex-1 overflow-auto">
         {loading && <p className="text-sm">Loading...</p>}
-        {!loading && mods.length === 0 && <p className="text-sm">No GMLoader mods found in {gmlDir}</p>}
+        {!loading && mods.length === 0 && <div className="text-center text-xl"><h1>Drag your mod file here</h1><p className="text-sm text-secondary-content">No GMLoader mods found in {gmlDir}</p></div>}
         {!loading && mods.length > 0 && (
           <DndContext
             collisionDetection={closestCenter}
@@ -720,28 +722,27 @@ useEffect(() => {
   );
 }
 
-function SettingsTab({ onSave }) {
+function SettingsTab({ onSave, applyTheme }) {
   const [settings, setSettings] = useState({ theme: "", launch_args: [], game_dir: "", game_data_dir: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [prepatches, setPrepatches] = useState([]);
+  const [customThemes, setCustomThemes] = useState([]);
 
   useEffect(() => {
-    invoke("get_settings")
-      .then((data) => { setSettings(data); applyTheme(data.theme); })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-    invoke("list_prepatches").then(setPrepatches).catch(console.error);
-  }, []);
+  invoke("get_settings")
+    .then((data) => { setSettings(data); applyTheme(data.theme); })
+    .catch(console.error)
+    .finally(() => setLoading(false));
+  invoke("list_files_by_ext", { folder: "prepatches", ext: "xdelta" }).then(setPrepatches).catch(console.error);
+  invoke("list_files_by_ext", { folder: "themes", ext: "css" }).then(setCustomThemes).catch(console.error);
+}, []);
 
-  const applyTheme = (theme) => {
-    document.documentElement.setAttribute("data-theme", theme);
-  };
 
-  const handleChange = (e) => {
+  const handleChange = async (e) => {
     const { name, value } = e.target;
     setSettings(prev => ({ ...prev, [name]: value }));
-    if (name === "theme") applyTheme(value);
+    if (name === "theme") await applyTheme(value);
   };
 
   const handleBrowse = async (field) => {
@@ -769,7 +770,7 @@ function SettingsTab({ onSave }) {
         path: `${exeDir}//settings.json`,
         content: JSON.stringify(settings, null, 2)
       });
-      applyTheme(settings.theme);
+      await applyTheme(settings.theme);
       onSave(settings);
       alert("Settings saved!");
     } catch (e) {
@@ -787,8 +788,15 @@ function SettingsTab({ onSave }) {
       <div className="flex flex-col">
         <label className="mb-1 text-sm font-semibold">Theme</label>
         <select name="theme" value={settings.theme} onChange={handleChange} className="select select-bordered select-sm">
-          {themes.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+  <optgroup label="Built-in">
+    {themes.map(t => <option key={t} value={t}>{t}</option>)}
+  </optgroup>
+  {customThemes.length > 0 && (
+    <optgroup label="Custom">
+      {customThemes.map(t => <option key={t} value={t}>{t}</option>)}
+    </optgroup>
+  )}
+</select>
       </div>
 
       <div className="flex items-center gap-2">
@@ -1198,7 +1206,7 @@ function LogPanel({ logs, onClear }) {
   }, [logs]);
 
   return (
-    <div className="mt-4 p-3 bg-base-300 rounded-lg h-40 overflow-y-auto text-xs font-mono flex flex-col">
+    <div className="mt-4 p-3 bg-base-300 rounded-box h-40 overflow-y-auto text-xs font-mono flex flex-col">
       <div className="flex justify-between items-center mb-2">
         <span className="font-bold">Logs</span>
         <button onClick={onClear} className="btn btn-sm btn-outline" title="Clear logs">🗑️</button>
@@ -1226,6 +1234,21 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [settings, setSettings] = useState({ theme: "light", game_dir: "" });
 
+  const applyTheme = async (theme) => {
+  document.querySelectorAll("[data-theme-custom]").forEach(el => el.remove());
+  document.documentElement.setAttribute("data-theme", theme);
+  try {
+    const exeDir = await invoke("get_main_dir", { folderName: "" });
+    let css = await invoke("read_item", { path: `${exeDir}\\themes\\${theme}.css` });
+    const el = document.createElement("style");
+    el.setAttribute("data-theme-custom", theme);
+    el.textContent = css;
+    document.head.appendChild(el);
+  } catch (e) {
+    // Thème builtin, pas de CSS — normal
+  }
+};
+
   const addLog = (message) => {
     const time = new Date().toLocaleTimeString();
     setLogs((prev) => [...prev, `[${time}] ${message}`]);
@@ -1234,12 +1257,11 @@ function App() {
   useEffect(() => {
     invoke("get_main_dir", { folderName: "mods" }).then(setModsDir).catch(console.error);
     invoke("get_main_dir", { folderName: "overwrite" }).then(setOverwiteDir).catch(console.error);
-    invoke("get_settings").then(setSettings).catch(console.error);
+    invoke("get_settings").then(s => {
+    setSettings(s);
+    applyTheme(s.theme);
+  }).catch(console.error);
   }, []);
-
-  useEffect(() => {
-    if (settings.theme) document.documentElement.setAttribute("data-theme", settings.theme);
-  }, [settings.theme]);
 
   useEffect(() => {
     const handleContextMenu = (e) => e.preventDefault();
@@ -1304,7 +1326,7 @@ const handleGBInstall = async (modId, modName, fileId, prefetched = null) => {
       writeModJson = false;
     }
 
-    if (!await confirm(`Install "${modName}"?`, { title: "Install Mod", kind: "info" })) return;
+    if (!await confirm(`Install "${modName}"?`, { title: `Downloading ${file._sFile} ...`, kind: "info" })) return;
 
     addLog(`Downloading ${file._sFile}...`);
     const bytes = await invoke("fetch_file", { url: file._sDownloadUrl });
@@ -1371,12 +1393,12 @@ const handleDropInstall = async (filePath, targetDir) => {
         </div>
         <a role="tab" className={`tab ${activeTab === "settings" ? "tab-active" : ""}`} onClick={() => setActiveTab("settings")}>Settings</a>
       </div>
-      <div className="flex-1 p-4 bg-base-200 rounded-lg">
+      <div className="flex-1 p-4 bg-base-200 rounded-box">
         <div className="flex-1 overflow-auto" style={{ height: `calc(100vh - ${(activeTab === "tab1" || activeTab === "tab2") ? "270px" : "90px"})` }}>
           {activeTab === "tab1" && <Tab1 modsDir={modsDir} overwiteDir={overwiteDir} addLog={addLog} logs={logs} onDropInstall={(p) => handleDropInstall(p, modsDir)}/>}
           {activeTab === "tab2" && <Tab2 modsDir={modsDir} addLog={addLog} onDropInstall={(p) => handleDropInstall(p, modsDir.replace(/[/\\]mods$/, "\\mods_GML"))}/>}
           {activeTab === "tab3" && <BrowseMods modsDir={modsDir} addLog={addLog} onInstall={handleGBInstall} />}
-          {activeTab === "settings" && <SettingsTab onSave={(s) => setSettings(s)} />}
+          {activeTab === "settings" && <SettingsTab onSave={(s) => setSettings(s)} applyTheme={applyTheme}/>}
         </div>
         {(activeTab === "tab1" || activeTab === "tab2") && (
           <div className="mt-auto">

@@ -781,10 +781,7 @@ fn mount_vfs(
             }
         }
     }
-
-    if steam_api {
-        fs::write(root.join("steam_appid.txt"), "2231450").map_err(|e| e.to_string())?;
-    }
+    fs::write(root.join("steam_appid.txt"), if steam_api { "2231450" } else { "0" }).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1101,21 +1098,16 @@ fn flatten_mod_dir(mod_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn list_prepatches() -> Result<Vec<String>, String> {
-    let dir = exe_dir()?.join("prepatches");
+fn list_files_by_ext(folder: String, ext: String) -> Result<Vec<String>, String> {
+    let dir = exe_dir()?.join(&folder);
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         return Ok(vec![]);
     }
-    Ok(fs::read_dir(&dir)
-        .map_err(|e| e.to_string())?
+    Ok(fs::read_dir(&dir).map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|x| x == "xdelta").unwrap_or(false))
-        .filter_map(|e| {
-            e.path()
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-        })
+        .filter(|e| e.path().extension().map(|x| x.to_string_lossy() == ext).unwrap_or(false))
+        .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string()))
         .collect())
 }
 
@@ -1202,7 +1194,7 @@ pub fn run() {
             detect_game_data_dir,
             get_mod_base_dir,
             flatten_mod_dir,
-            list_prepatches,
+            list_files_by_ext,
             is_process_running,
             kill_process,
         ])
