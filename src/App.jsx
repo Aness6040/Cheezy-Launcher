@@ -935,6 +935,7 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
   const [categories, setCategories] = useState([]);
   const [selectedCat, setSelectedCat] = useState(null);
   const [filePickerMod, setFilePickerMod] = useState(null);
+  const [viewModal, setViewModal] = useState(null);
 
   const [sortBy, setSortBy] = useState("_tsDateUpdated,DESC");
 
@@ -1094,6 +1095,38 @@ const handleDownload = async (file) => {
   await onInstall(mod._idRow, mod.name, file._idRow, filePickerMod);
 };
 
+const handleViewMod = async (mod) => {
+  try {
+    const res = await fetch(
+      `https://gamebanana.com/apiv11/Mod/${mod._idRow}?_csvProperties=_sName,_sDescription,_aPreviewMedia,_aSubmitter,_aRootCategory,_tsDateModified,_nDownloadCount,_nLikeCount`
+    );
+    const data = await res.json();
+
+    const images = data._aPreviewMedia?._aImages?.map(img =>
+      `${img._sBaseUrl}/${img._sFile}`
+    ) || [];
+
+    setViewModal({
+      name: data._sName,
+      description: data._sDescription,
+      author: data._aSubmitter?._sName,
+      avi: data._aSubmitter?._sAvatarUrl,
+      category: data._aRootCategory?._sName,
+      catIcon: data._aRootCategory?._sIconUrl,
+      images,
+      downloads: data._nDownloadCount,
+      likes: data._nLikeCount,
+      date: data._tsDateModified,
+      url: mod.url,
+      raw: mod, // pour install direct
+    });
+
+  } catch (e) {
+    addLog(`Error loading mod details: ${e}`);
+  }
+};
+
+
   return (
     <>
     <div className="flex flex-col h-full gap-3">
@@ -1141,7 +1174,12 @@ const handleDownload = async (file) => {
                   <h2 className="text-sm font-bold truncate">{mod.name}</h2>
                   <p className="text-xs text-gray-400 truncate">{mod.owner} • {mod.cat}</p>
                   <div className="mt-auto flex gap-2 pt-2">
-                    <a href={mod.url} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-outline flex-1">View</a>
+                    <button
+  onClick={() => handleViewMod(mod)}
+  className="btn btn-xs btn-outline flex-1"
+>
+  View
+</button>
                     <button
                       onClick={() => handlePickFile(mod)}
                       disabled={downloading !== null}
@@ -1189,7 +1227,149 @@ const handleDownload = async (file) => {
             </button>
           </div>
         ))}
+
+        
       </div>
+    </div>
+  </div>
+)}
+{viewModal && (
+  <div 
+    className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-center"
+    onClick={() => setViewModal(null)}
+  >
+
+    <div 
+      className="bg-base-100 w-[900px] h-[85vh] rounded-box shadow-2xl flex flex-col overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="relative h-56">
+        {viewModal.images?.[0] && (
+          <img
+            src={viewModal.images[0]}
+            className="w-full h-full object-cover"
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+        <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+          <div>
+            <h1 className="text-white text-2xl font-bold">{viewModal.name}</h1>
+            <p className="text-white/70 text-sm">
+              by {viewModal.author}
+            </p>
+          </div>
+
+          <button
+            className="btn btn-sm btn-circle btn-ghost text-white"
+            onClick={() => setViewModal(null)}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
+          {viewModal.images?.length > 0 && (
+  <div className="relative">
+
+    <div className="carousel w-full rounded-box">
+
+      {viewModal.images.map((img, i) => (
+        <div
+          key={i}
+          id={`slide-${i}`}
+          className="carousel-item relative w-full"
+        >
+          <img
+            src={img}
+            className="w-full h-80 object-cover"
+          />
+<div className="absolute flex justify-between transform -translate-y-1/2 left-2 right-2 top-1/2 pointer-events-none">
+  <a
+    href={`#slide-${(i - 1 + viewModal.images.length) % viewModal.images.length}`}
+    className="btn btn-circle btn-sm pointer-events-auto"
+  >
+    ❮
+  </a>
+  <a
+    href={`#slide-${(i + 1) % viewModal.images.length}`}
+    className="btn btn-circle btn-sm pointer-events-auto"
+  >
+    ❯
+  </a>
+</div>
+        </div>
+      ))}
+
+    </div>
+
+  </div>
+)}
+          <div>
+            <h2 className="font-bold text-lg mb-2">Description</h2>
+            <div
+              className="prose max-w-none text-sm"
+              dangerouslySetInnerHTML={{ __html: viewModal.description }}
+            />
+          </div>
+
+        </div>
+        <div className="w-64 border-l border-base-300 p-4 flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            {viewModal.avi && (
+              <img src={viewModal.avi} className="w-10 h-10 rounded-full" />
+            )}
+            <div>
+              <p className="text-sm font-medium">{viewModal.author}</p>
+              <p className="text-xs text-base-content/50">Creator</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between text-sm">
+              <span>Downloads</span>
+              <span>{viewModal.downloads}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span>Likes</span>
+              <span>{viewModal.likes}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span>Updated</span>
+              <span>{new Date(viewModal.date * 1000).toLocaleDateString()}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            {viewModal.catIcon && (
+              <img src={viewModal.catIcon} className="w-5 h-5" />
+            )}
+            <span>{viewModal.category}</span>
+          </div>
+          <div className="mt-auto flex flex-col gap-2">
+            <a
+              href={viewModal.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-sm btn-outline"
+            >
+              View Page
+            </a>
+
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => {
+                setViewModal(null);
+                handlePickFile(viewModal.raw);
+              }}
+            >
+              Install
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+
     </div>
   </div>
 )}
