@@ -34,6 +34,7 @@ steamlocate = "2.0.1"
 tauri-plugin-dialog = "2.6.0"
 sysinfo = "0.38.4"
 tauri-plugin-deep-link = "2"
+unrar = "0.5.8"
 
 [build]
 incremental = true

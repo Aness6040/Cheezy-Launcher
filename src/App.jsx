@@ -1126,6 +1126,10 @@ const handleViewMod = async (mod) => {
   }
 };
 
+const handleViewPage = async () => {
+  openUrl(viewModal.url)
+}
+
 
   return (
     <>
@@ -1346,14 +1350,13 @@ const handleViewMod = async (mod) => {
             <span>{viewModal.category}</span>
           </div>
           <div className="mt-auto flex flex-col gap-2">
-            <a
-              href={viewModal.url}
-              target="_blank"
+            <button
               rel="noopener noreferrer"
               className="btn btn-sm btn-outline"
+              onClick={handleViewPage}
             >
               View Page
-            </a>
+            </button>
 
             <button
               className="btn btn-sm btn-primary"

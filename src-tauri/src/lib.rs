@@ -7,6 +7,7 @@ use sysinfo::{ProcessesToUpdate, System};
 use tauri::Emitter;
 use tauri::{Manager, State};
 use tauri_plugin_single_instance::init as single_instance;
+use unrar::Archive;
 
 #[derive(Default)]
 struct AppState {
@@ -43,6 +44,34 @@ fn detect_archive_type(bytes: &[u8]) -> &'static str {
     } else {
         "unknown"
     }
+}
+
+pub fn extract_rar(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+
+    let mut archive = Archive::new(src)
+        .open_for_processing()
+        .map_err(|e| e.to_string())?;
+
+    while let Some(header) = archive.read_header().map_err(|e| e.to_string())? {
+        archive = if header.entry().is_file() {
+            let entry_path = dst.join(
+                header.entry().filename.to_string_lossy().replace('\\', "/")
+            );
+            if let Some(parent) = entry_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            header.extract_with_base(dst).map_err(|e| e.to_string())?
+        } else {
+            let dir_path = dst.join(
+                header.entry().filename.to_string_lossy().replace('\\', "/")
+            );
+            fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
+            header.skip().map_err(|e| e.to_string())?
+        };
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -909,11 +938,11 @@ fn download_mod(
         fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
         fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
-    } else if archive_type == "rar" {
-        let tmp_path = Path::new(&mods_path).join(&file_name);
-        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
-        sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
-        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    }  else if archive_type == "rar" {
+    let tmp_path = Path::new(&mods_path).join(&file_name);
+    fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+    extract_rar(&tmp_path, &mod_dir)?;
+    fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
     } else {
         let out_path = mod_dir.join(&file_name);
         fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
@@ -953,11 +982,16 @@ fn install_local_mod(mod_name: String, mods_path: String, file_path: String) -> 
                 std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
             }
         }
-    } else if archive_type == "7z" || archive_type == "rar" {
+    } else if archive_type == "7z" {
         let tmp_path = Path::new(&mods_path).join(&file_name);
         fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
         fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else if archive_type == "rar" {
+    let tmp_path = Path::new(&mods_path).join(&file_name);
+    fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+    extract_rar(&tmp_path, &mod_dir)?;
+    fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
     } else {
         let out_path = mod_dir.join(&file_name);
         fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
