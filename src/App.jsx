@@ -19,6 +19,9 @@ const themes = [
   "dark"
 ];
 
+import { start, stop, setActivity, clearActivity, destroy } from "tauri-plugin-drpc";
+import { Activity, Assets, Timestamps } from "tauri-plugin-drpc/activity";
+
 function ModCard({ modPath, modName, selected = false, onSelect, contextMenu, setContextMenu }) {
   const [modData, setModData] = useState(null);
 
@@ -825,6 +828,15 @@ function SettingsTab({ onSave, applyTheme }) {
         onChange={(e) => setSettings(prev => ({ ...prev, steam_api: e.target.checked }))}
       />
       </div>
+      <div className="flex items-center gap-2">
+  <label className="text-sm font-semibold">Discord Rich Presence</label>
+  <input
+    type="checkbox"
+    className="toggle toggle-primary"
+    checked={settings.discord_rpc ?? true}
+    onChange={(e) => setSettings(prev => ({ ...prev, discord_rpc: e.target.checked }))}
+  />
+</div>
 
       <div className="flex flex-col">
         <label className="mb-1 text-sm font-semibold">Launch Arguments</label>
@@ -1432,7 +1444,47 @@ function App() {
   const [modsDir, setModsDir] = useState(null);
   const [overwiteDir, setOverwiteDir] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [settings, setSettings] = useState({ theme: "light", game_dir: "" });
+  const [settings, setSettings] = useState({ theme: "light", game_dir: "", discord_rpc: undefined });
+
+useEffect(() => {
+  if (settings.discord_rpc === undefined) return;
+
+  console.log("[RPC] discord_rpc changed:", settings.discord_rpc);
+
+  if (settings.discord_rpc) {
+    start("1492450589278212237")
+      .then(() => console.log("[RPC] started"))
+      .catch((e) => console.error("[RPC] start error:", e));
+  } else {
+    clearActivity()
+      .catch(() => {})
+      .finally(() => {
+        destroy().catch(() => {});
+      });
+  }
+  return () => {
+    destroy().catch(() => {});
+  };
+}, [settings.discord_rpc]);
+const rpcStartTime = useRef(Date.now());
+useEffect(() => {
+  if (!settings.discord_rpc) return;
+
+  const labels = {
+    tab1: "Managing mods",
+    tab2: "GMLoader mods",
+    tab3: "Browsing GameBanana",
+    settings: "In settings",
+  };
+
+  const activity = new Activity()
+    .setDetails("Pizza Tower Mod Manager")
+    .setState(labels[activeTab] || "Menu")
+    .setAssets(new Assets().setLargeImage("logo").setLargeText("PT Mod Manager"))
+    .setTimestamps(new Timestamps(rpcStartTime.current));
+
+  setActivity(activity).catch(() => {});
+}, [activeTab, settings.discord_rpc]);
 
   const applyTheme = async (theme) => {
   document.querySelectorAll("[data-theme-custom]").forEach(el => el.remove());

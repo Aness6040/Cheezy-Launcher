@@ -34,6 +34,8 @@ struct Settings {
     steam_api: bool,
     #[serde(default)]
     gmloader_enabled: bool,
+    #[serde(default)]
+    discord_rpc: bool,
 }
 
 fn detect_archive_type(bytes: &[u8]) -> &'static str {
@@ -111,6 +113,7 @@ fn get_settings() -> Result<Settings, String> {
             prepatch: String::new(),
             steam_api: true,
             gmloader_enabled: false,
+            discord_rpc: true,
         };
         fs::write(
             &config_path,
@@ -1184,6 +1187,7 @@ pub fn run() {
     let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_drpc::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(shared_state)
         .setup(|app| {
