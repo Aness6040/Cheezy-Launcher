@@ -66,47 +66,42 @@ function App() {
     discord_rpc: undefined,
   });
 
+  const tabs = [
+    { id: "tab1", label: "Manage Mods", rpcState: "Managing mods" },
+    { id: "tab2", label: "GMLoader Mods", rpcState: "GMLoader mods" },
+    { id: "tab3", label: "Browse Mods", rpcState: "Browsing GameBanana" },
+  ];
+
+  const rpcStartTime = useRef(Date.now());
+  const getRpcState = (tabId) => {
+    if (tabId === "settings") return "In settings";
+    return tabs.find((t) => t.id === tabId)?.rpcState || "Menu";
+  };
+
   useEffect(() => {
     if (settings.discord_rpc === undefined) return;
 
-    console.log("[RPC] discord_rpc changed:", settings.discord_rpc);
-
     if (settings.discord_rpc) {
-      start("1492450589278212237")
-        .then(() => console.log("[RPC] started"))
-        .catch((e) => console.error("[RPC] start error:", e));
+      start("1492450589278212237").catch(console.error);
     } else {
-      clearActivity()
-        .catch(() => {})
-        .finally(() => {
-          destroy().catch(() => {});
-        });
+      clearActivity().finally(() => destroy());
+      return;
     }
-    return () => {
-      destroy().catch(() => {});
-    };
-  }, [settings.discord_rpc]);
-  const rpcStartTime = useRef(Date.now());
-  useEffect(() => {
-    if (!settings.discord_rpc) return;
-
-    const labels = {
-      tab1: "Managing mods",
-      tab2: "GMLoader mods",
-      tab3: "Browsing GameBanana",
-      settings: "In settings",
-    };
 
     const activity = new Activity()
       .setDetails("Pizza Tower Mod Manager")
-      .setState(labels[activeTab] || "Menu")
+      .setState(getRpcState(activeTab))
       .setAssets(
         new Assets().setLargeImage("logo").setLargeText("PT Mod Manager"),
       )
       .setTimestamps(new Timestamps(rpcStartTime.current));
 
-    setActivity(activity).catch(() => {});
-  }, [activeTab, settings.discord_rpc]);
+    setActivity(activity).catch(console.error);
+
+    return () => {
+      destroy().catch(() => {});
+    };
+  }, [settings.discord_rpc, activeTab]);
 
   const applyTheme = async (theme) => {
     document
@@ -290,12 +285,6 @@ function App() {
       addLog(`Drop install error: ${e}`);
     }
   };
-
-  const tabs = [
-    { id: "tab1", label: "Manage Mods" },
-    { id: "tab2", label: "GMLoader Mods" },
-    { id: "tab3", label: "Browse Mods" },
-  ];
 
   return (
     <div>
