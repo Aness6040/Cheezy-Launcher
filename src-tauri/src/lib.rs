@@ -29,6 +29,8 @@ struct Settings {
     #[serde(default)]
     game_data_dir: String,
     #[serde(default)]
+    data_target: String,
+    #[serde(default)]
     prepatch: String,
     #[serde(default)]
     steam_api: bool,
@@ -110,6 +112,7 @@ fn get_settings() -> Result<Settings, String> {
             launch_args: Vec::new(),
             game_dir,
             game_data_dir,
+            data_target: "data.win".to_string(),
             prepatch: String::new(),
             steam_api: true,
             gmloader_enabled: false,
@@ -306,6 +309,7 @@ fn prepare_overwrite(
     prepatch: String,
     gmloader_enabled: bool,
     gml_mods_path: String,
+    data_target: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let log = |msg: &str| {
@@ -352,7 +356,7 @@ fn prepare_overwrite(
 
         let has_patch_at_root = root_files.iter().any(|e| {
             let name = e.file_name().to_string_lossy().to_lowercase();
-            name.ends_with(".xdelta") || name == "data.win"
+            name.ends_with(".xdelta") || name == data_target
         });
 
         let mod_base = if !has_patch_at_root
@@ -385,7 +389,7 @@ fn prepare_overwrite(
                 .to_string_lossy()
                 .to_lowercase();
 
-            if file_name == "mod.json" {
+            if file_name == "mod.json" || file_name == "settings.json" {
                 continue;
             }
             if file_name.ends_with(".xdelta") {
@@ -427,12 +431,12 @@ fn prepare_overwrite(
                                 .unwrap_or_default()
                                 .to_string_lossy()
                                 .to_lowercase()
-                                == "data.win"
+                                == data_target
                         })
                     })
                     .ok_or_else(|| "data.win not found for prepatch".to_string())?;
 
-                let dest = over.join("data.win");
+                let dest = over.join(&data_target);
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
@@ -563,6 +567,27 @@ fn prepare_overwrite(
             }
         }
     }
+
+let src = over.join(&data_target);
+let dst = over.join("data.win");
+
+if data_target.to_lowercase() != "data.win" {
+    let src = game_path.join(&data_target);
+    let dst = over.join(&data_target);
+
+    if src.exists() {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::copy(&src, &dst).map_err(|e| e.to_string())?;
+    }
+}
+if src.exists() && src != dst {
+    if dst.exists() {
+        fs::remove_file(&dst).map_err(|e| e.to_string())?;
+    }
+    fs::rename(&src, &dst).map_err(|e| e.to_string())?;
+}
 
     if gmloader_enabled {
         let gml_path = Path::new(&gml_mods_path);
@@ -732,6 +757,8 @@ fn mount_vfs(
                                     "CheckHash=false".to_string()
                                 } else if line.starts_with("AutoGameStart=") {
                                     "AutoGameStart=false".to_string()
+                                } else if line.starts_with("GameData="){
+                                    "GameData=data.win".to_string()
                                 } else {
                                     line.to_string()
                                 }

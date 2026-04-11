@@ -153,15 +153,28 @@ useEffect(() => {
     try {
       const vfsRoot = await invoke("get_main_dir", { folderName: "vfs_root" });
       const settingsData = await invoke("get_settings");
+let effectiveSettings = { ...settingsData };
+if (selectedMod) {
+  try {
+    const modSettingsRaw = await invoke("read_item", {
+      path: `${modsDir}\\${selectedMod}\\settings.json`,
+    });
+    const modSettings = JSON.parse(modSettingsRaw);
+    effectiveSettings = { ...effectiveSettings, ...modSettings };
+  } catch (_) {
+    // ignore
+  }
+}
       const gmlDir = modsDir.replace(/[/\\]mods$/, "\\mods_GML");
       if (mode !== "launch") {
       await invoke("prepare_overwrite", {
         mods: selectedMod ? [selectedMod] : [],
         modsPath: modsDir,
         overwritePath: overwiteDir,
-        gameDir: settingsData.game_dir,
-        prepatch: settingsData.prepatch || "",
-        gmloaderEnabled: gmloaderEnabled,
+        gameDir: effectiveSettings.game_dir,
+        prepatch: effectiveSettings.prepatch || "",
+        gmloaderEnabled: effectiveSettings.gmloader_enabled ?? gmloaderEnabled,
+        dataTarget: effectiveSettings.data_target|| "data.win",
         gmlModsPath: gmlDir,
       });
       }
@@ -170,12 +183,12 @@ useEffect(() => {
       addLog(chalk.yellow("Mounting VFS..."));
 
       await invoke("mount_vfs", {
-        gameDir: settingsData.game_dir,
-        overwritePath: overwiteDir,
-        vfsRoot,
-        steamApi: settingsData.steam_api || false,
-        gmloaderEnabled: gmloaderEnabled,
-      });
+  gameDir: effectiveSettings.game_dir,
+  overwritePath: overwiteDir,
+  vfsRoot,
+  steamApi: effectiveSettings.steam_api ?? false,
+  gmloaderEnabled: effectiveSettings.gmloader_enabled ?? gmloaderEnabled,
+});
       if (gmloaderEnabled) {
         const unlistenOutput = await listen("process-output", (event) => {
         if (event.payload.exe === "GMLoader.exe") {
@@ -222,7 +235,7 @@ async function launchPizzaTower() {
   await invoke("launch_game", {
     vfsRoot,
     exeName: "PizzaTower.exe",
-    launchArgs: settingsData.launch_args || [],
+    launchArgs: effectiveSettings.launch_args || [],
   });
 
   addLog(chalk.green("Game is running"));
