@@ -291,32 +291,28 @@ function App() {
     }
   };
 
+  const tabs = [
+    { id: "tab1", label: "Manage Mods" },
+    { id: "tab2", label: "GMLoader Mods" },
+    { id: "tab3", label: "Browse Mods" },
+  ];
+
   return (
     <div>
       <div role="tablist" className="tabs tabs-border flex justify-between">
         <div className="flex gap-1 tabs-border">
-          <a
-            role="tab"
-            className={`tab ${activeTab === "tab1" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("tab1")}
-          >
-            Manage Mods
-          </a>
-          <a
-            role="tab"
-            className={`tab ${activeTab === "tab2" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("tab2")}
-          >
-            GMLoader Mods
-          </a>
-          <a
-            role="tab"
-            className={`tab ${activeTab === "tab3" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("tab3")}
-          >
-            Browse Mods
-          </a>
+          {tabs.map((tab) => (
+            <a
+              key={tab.id}
+              role="tab"
+              className={`tab ${activeTab === tab.id ? "tab-active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </a>
+          ))}
         </div>
+
         <a
           role="tab"
           className={`tab ${activeTab === "settings" ? "tab-active" : ""}`}
