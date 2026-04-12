@@ -23,6 +23,26 @@ export default function PluginsTab({ onPluginsChange }) {
 
   useEffect(() => {
     reload();
+
+    let lastJson = "";
+
+    const poll = setInterval(async () => {
+      try {
+        const list = await invoke("list_plugins");
+        const json = JSON.stringify(
+          list.map((p) => ({ id: p.id, enabled: p.enabled })),
+        );
+        if (json !== lastJson) {
+          lastJson = json;
+          setPlugins(list);
+          onPluginsChange?.(list.filter((p) => p.enabled));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 2000);
+
+    return () => clearInterval(poll);
   }, []);
 
   const toggle = async (plugin) => {

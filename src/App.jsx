@@ -80,24 +80,43 @@ function App() {
       .catch(console.error);
   }, []);
 
+  const pluginCacheRef = useRef({});
+
   const handlePluginsChange = async (enabledPlugins) => {
     if (!window.React) {
       const r = await import("react");
       window.React = r;
     }
+
+    const simpleHash = (str) => {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) {
+        h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+      }
+      return h;
+    };
+
+    const cache = pluginCacheRef.current;
     const newTabs = [];
+
     for (const plugin of enabledPlugins) {
       try {
         const code = await invoke("read_plugin_script", {
           pluginId: plugin.id,
         });
+        const hash = simpleHash(code);
+
+        if (cache[plugin.id] && cache[plugin.id].hash === hash) {
+          newTabs.push(...cache[plugin.id].tabs);
+          continue;
+        }
+
         let registered = null;
         window.__ptRegisterPlugin = (def) => {
           registered = def;
         };
-        // eslint-disable-next-line no-new-func
-        let compiled;
 
+        let compiled;
         try {
           compiled = Babel.transform(code, {
             presets: ["react", "typescript"],
@@ -114,19 +133,30 @@ function App() {
           console.error(`Runtime error in plugin ${plugin.id}:`, e);
           continue;
         }
+
+        const pluginTabs = [];
         if (registered?.tabs) {
           for (const tab of registered.tabs) {
-            newTabs.push({
+            pluginTabs.push({
               pluginId: plugin.id,
               tabId: tab.id,
               label: tab.label,
             });
           }
         }
+
+        cache[plugin.id] = { hash, tabs: pluginTabs };
+        newTabs.push(...pluginTabs);
       } catch (e) {
         console.error(`Failed to load tabs for plugin ${plugin.id}:`, e);
       }
     }
+
+    const enabledIds = new Set(enabledPlugins.map((p) => p.id));
+    for (const id of Object.keys(cache)) {
+      if (!enabledIds.has(id)) delete cache[id];
+    }
+
     setPluginTabs(newTabs);
     setActiveTab((prev) => {
       if (!prev.startsWith("plugin:")) return prev;
