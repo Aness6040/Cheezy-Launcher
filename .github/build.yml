@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    permissions:
+      contents: write
+
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Tauri App + Create Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Windows App ${{ github.ref_name }}"
+          releaseBody: "Automatic Windows release"
+          releaseDraft: false
+          prerelease: false
