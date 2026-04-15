@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use sysinfo::{ProcessesToUpdate, System};
 use tauri::Emitter;
@@ -281,7 +281,11 @@ fn apply_xdelta_patch(
 
     #[cfg(windows)]
     {
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd.creation_flags(
+        0x08000000 // CREATE_NO_WINDOW
+        | 0x00000008 // DETACHED_PROCESS
+        | 0x00000200 // CREATE_NEW_PROCESS_GROUP
+    );
     }
     cmd.arg("-d");
     if overwrite {
@@ -293,6 +297,9 @@ fn apply_xdelta_patch(
         .arg(&output_path);
 
     let status = cmd
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
         .status()
         .map_err(|e| format!("xdelta launch error: {}", e))?;
     if status.success() {
@@ -446,7 +453,21 @@ fn prepare_overwrite(
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
 
-                let status = Command::new(&xdelta)
+                let mut cmd = Command::new(&xdelta);
+
+                #[cfg(windows)]
+                {
+                    cmd.creation_flags(
+                    0x08000000 // CREATE_NO_WINDOW
+                    | 0x00000008 // DETACHED_PROCESS
+                    | 0x00000200 // CREATE_NEW_PROCESS_GROUP
+                    );
+                }
+
+                let status = cmd
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null()) 
+                    .stdin(Stdio::null())
                     .args(["-d", "-f", "-s"])
                     .arg(source)
                     .arg(&prepatch_path)
@@ -540,7 +561,21 @@ fn prepare_overwrite(
                 ));
                 let actual_dest = if use_tmp { &tmp } else { &dest };
 
-                let status = Command::new(&xdelta)
+                let mut cmd = Command::new(&xdelta);
+
+                #[cfg(windows)]
+                {
+                    cmd.creation_flags(
+                    0x08000000 // CREATE_NO_WINDOW
+                    | 0x00000008 // DETACHED_PROCESS
+                    | 0x00000200 // CREATE_NEW_PROCESS_GROUP
+                    );
+                }
+
+                let status = cmd
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .stdin(Stdio::null())
                     .args(["-d", "-f", "-s"])
                     .arg(source)
                     .arg(entry.path())
@@ -909,6 +944,7 @@ async fn launch_game(
 
     Ok(())
 }
+
 #[tauri::command]
 fn is_operation_running(state: State<'_, SharedState>) -> bool {
     state.lock().map(|s| s.operation_running).unwrap_or(false)
