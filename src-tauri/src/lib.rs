@@ -18,6 +18,7 @@ struct AppState {
 }
 
 type SharedState = Arc<Mutex<AppState>>;
+type SysState = Arc<Mutex<System>>;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
@@ -28,6 +29,8 @@ struct Settings {
     game_dir: String,
     #[serde(default)]
     game_data_dir: String,
+    #[serde(default)]
+    exe_name: String,
     #[serde(default)]
     data_target: String,
     #[serde(default)]
@@ -84,90 +87,87 @@ pub fn extract_rar(src: &Path, dst: &Path) -> Result<(), String> {
 fn get_settings() -> Result<Settings, String> {
     let exe_dir = exe_dir()?;
     let config_path = exe_dir.join("settings.json");
-    if !config_path.exists() {
-        let game_dir = steamlocate::SteamDir::locate()
-            .ok()
-            .and_then(|s| s.find_app(2231450).ok().flatten())
-            .map(|(app, lib)| {
-                lib.path()
-                    .join("steamapps")
-                    .join("common")
-                    .join(&app.install_dir)
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or_default();
 
-        let game_data_dir = std::env::var("APPDATA")
-            .map(|p| {
-                Path::new(&p)
-                    .join("PizzaTower_GM2")
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or_default();
+    if config_path.exists() {
+        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let mut settings: Settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
-        let default = Settings {
-            theme: "light".to_string(),
-            launch_args: Vec::new(),
-            game_dir,
-            game_data_dir,
-            data_target: "data.win".to_string(),
-            prepatch: String::new(),
-            steam_api: true,
-            gmloader_enabled: false,
-            discord_rpc: true,
-        };
-        fs::write(
-            &config_path,
-            serde_json::to_string_pretty(&default).unwrap(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
+        let mut changed = false;
 
-    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-    let mut settings: Settings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-
-    // Auto-détecter si les paths sont vides
-    let mut changed = false;
-
-    if settings.game_dir.is_empty() {
-        if let Some(path) = steamlocate::SteamDir::locate()
-            .ok()
-            .and_then(|s| s.find_app(2231450).ok().flatten())
-            .map(|(app, lib)| {
-                lib.path()
-                    .join("steamapps")
-                    .join("common")
-                    .join(&app.install_dir)
-                    .to_string_lossy()
-                    .to_string()
-            })
-        {
-            settings.game_dir = path;
-            changed = true;
+        if settings.game_dir.is_empty() {
+            if let Some(path) = locate_pizza_tower() {
+                settings.game_dir = path;
+                changed = true;
+            }
         }
+
+        if settings.game_data_dir.is_empty() {
+            if let Some(path) = locate_game_data_dir() {
+                settings.game_data_dir = path;
+                changed = true;
+            }
+        }
+
+        if changed {
+            let _ = fs::write(
+                &config_path,
+                serde_json::to_string_pretty(&settings).unwrap(),
+            );
+        }
+
+        return Ok(settings);
     }
 
-    if settings.game_data_dir.is_empty() {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            settings.game_data_dir = Path::new(&appdata)
+    let game_dir = locate_pizza_tower().unwrap_or_default();
+    let game_data_dir = locate_game_data_dir().unwrap_or_default();
+
+    let default = Settings {
+        theme: "light".to_string(),
+        launch_args: Vec::new(),
+        game_dir,
+        game_data_dir,
+        exe_name: "PizzaTower.exe".to_string(),
+        data_target: "data.win".to_string(),
+        prepatch: String::new(),
+        steam_api: true,
+        gmloader_enabled: false,
+        discord_rpc: true,
+    };
+    fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&default).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(default)
+}
+
+fn locate_pizza_tower() -> Option<String> {
+    steamlocate::SteamDir::locate()
+        .ok()
+        .and_then(|s| s.find_app(2231450).ok().flatten())
+        .map(|(app, lib)| {
+            lib.path()
+                .join("steamapps")
+                .join("common")
+                .join(&app.install_dir)
+                .to_string_lossy()
+                .to_string()
+        })
+}
+
+fn locate_game_data_dir() -> Option<String> {
+    #[cfg(windows)]
+    {
+        std::env::var("APPDATA").ok().map(|p| {
+            Path::new(&p)
                 .join("PizzaTower_GM2")
                 .to_string_lossy()
-                .to_string();
-            changed = true;
-        }
+                .to_string()
+        })
     }
-
-    if changed {
-        fs::write(
-            &config_path,
-            serde_json::to_string_pretty(&settings).unwrap(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    Ok(settings)
+    #[cfg(not(windows))]
+    None
 }
 
 fn exe_dir() -> Result<PathBuf, String> {
@@ -281,11 +281,11 @@ fn apply_xdelta_patch(
 
     #[cfg(windows)]
     {
-    cmd.creation_flags(
-        0x08000000 // CREATE_NO_WINDOW
-        | 0x00000008 // DETACHED_PROCESS
-        | 0x00000200 // CREATE_NEW_PROCESS_GROUP
-    );
+        cmd.creation_flags(
+            0x08000000
+            | 0x00000008
+            | 0x00000200
+        );
     }
     cmd.arg("-d");
     if overwrite {
@@ -347,6 +347,15 @@ fn prepare_overwrite(
         .map(|e| e.path().to_path_buf())
         .collect();
 
+    use std::collections::HashMap;
+    let game_files_by_name: HashMap<String, &PathBuf> = game_files
+        .iter()
+        .map(|p| (
+            p.file_name().unwrap_or_default().to_string_lossy().to_lowercase(),
+            p,
+        ))
+        .collect();
+
     log(&format!("{} game files found", game_files.len()));
 
     for mod_name in &mods {
@@ -363,7 +372,6 @@ fn prepare_overwrite(
             .collect();
 
         let root_files: Vec<_> = root_entries.iter().filter(|e| e.path().is_file()).collect();
-
         let root_dirs: Vec<_> = root_entries.iter().filter(|e| e.path().is_dir()).collect();
 
         let has_patch_at_root = root_files.iter().any(|e| {
@@ -392,6 +400,7 @@ fn prepare_overwrite(
             .collect();
 
         all_entries.sort_by_key(|e| e.path().to_path_buf());
+
         log("Copying files...");
         for entry in &all_entries {
             let file_name = entry
@@ -401,10 +410,7 @@ fn prepare_overwrite(
                 .to_string_lossy()
                 .to_lowercase();
 
-            if file_name == "mod.json" || file_name == "settings.json" {
-                continue;
-            }
-            if file_name.ends_with(".xdelta") {
+            if file_name == "mod.json" || file_name == "settings.json" || file_name.ends_with(".xdelta") {
                 continue;
             }
 
@@ -428,24 +434,10 @@ fn prepare_overwrite(
             if prepatch_path.exists() {
                 log(&format!("Applying prepatch: {}", prepatch));
 
-                let source = game_files
-                    .iter()
-                    .find(|f| {
-                        f.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_lowercase()
-                            == "data.win.po"
-                    })
-                    .or_else(|| {
-                        game_files.iter().find(|f| {
-                            f.file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_lowercase()
-                                == data_target
-                        })
-                    })
+                let source = game_files_by_name
+                    .get("data.win.po")
+                    .copied()
+                    .or_else(|| game_files_by_name.get(data_target.to_lowercase().as_str()).copied())
                     .ok_or_else(|| "data.win not found for prepatch".to_string())?;
 
                 let dest = over.join(&data_target);
@@ -458,15 +450,15 @@ fn prepare_overwrite(
                 #[cfg(windows)]
                 {
                     cmd.creation_flags(
-                    0x08000000 // CREATE_NO_WINDOW
-                    | 0x00000008 // DETACHED_PROCESS
-                    | 0x00000200 // CREATE_NEW_PROCESS_GROUP
+                        0x08000000
+                        | 0x00000008
+                        | 0x00000200
                     );
                 }
 
                 let status = cmd
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null()) 
+                    .stderr(Stdio::null())
                     .stdin(Stdio::null())
                     .args(["-d", "-f", "-s"])
                     .arg(source)
@@ -476,7 +468,7 @@ fn prepare_overwrite(
                     .map_err(|e| e.to_string())?;
 
                 if status.success() {
-                    log(&format!("  ✓ Prepatch applied -> data.win"));
+                    log("  ✓ Prepatch applied -> data.win");
                 } else {
                     return Err(format!("Prepatch failed: {}", prepatch));
                 }
@@ -499,7 +491,6 @@ fn prepare_overwrite(
             log(&format!("  Patching: {}", file_name));
             let mut patched = false;
 
-            // Candidats : overwrite/ en priorité, puis jeu (.po > brut)
             let mut candidates: Vec<PathBuf> = Vec::new();
 
             if over.exists() {
@@ -566,9 +557,9 @@ fn prepare_overwrite(
                 #[cfg(windows)]
                 {
                     cmd.creation_flags(
-                    0x08000000 // CREATE_NO_WINDOW
-                    | 0x00000008 // DETACHED_PROCESS
-                    | 0x00000200 // CREATE_NEW_PROCESS_GROUP
+                        0x08000000
+                        | 0x00000008
+                        | 0x00000200
                     );
                 }
 
@@ -608,26 +599,26 @@ fn prepare_overwrite(
         }
     }
 
-let src = over.join(&data_target);
-let dst = over.join("data.win");
+    let src = over.join(&data_target);
+    let dst = over.join("data.win");
 
-if data_target.to_lowercase() != "data.win" {
-    let src = game_path.join(&data_target);
-    let dst = over.join(&data_target);
+    if data_target.to_lowercase() != "data.win" {
+        let src = game_path.join(&data_target);
+        let dst = over.join(&data_target);
 
-    if src.exists() {
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        if src.exists() {
+            if let Some(parent) = dst.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::copy(&src, &dst).map_err(|e| e.to_string())?;
         }
-        fs::copy(&src, &dst).map_err(|e| e.to_string())?;
     }
-}
-if src.exists() && src != dst {
-    if dst.exists() {
-        fs::remove_file(&dst).map_err(|e| e.to_string())?;
+    if src.exists() && src != dst {
+        if dst.exists() {
+            fs::remove_file(&dst).map_err(|e| e.to_string())?;
+        }
+        fs::rename(&src, &dst).map_err(|e| e.to_string())?;
     }
-    fs::rename(&src, &dst).map_err(|e| e.to_string())?;
-}
 
     if gmloader_enabled {
         let gml_path = Path::new(&gml_mods_path);
@@ -692,6 +683,20 @@ fn mount_vfs(
     }
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
 
+    use std::collections::HashSet;
+    let overwrite_files: HashSet<PathBuf> = if over.exists() {
+        walkdir::WalkDir::new(over)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| {
+                e.path().strip_prefix(over).ok().map(|r| r.to_path_buf())
+            })
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
     for entry in walkdir::WalkDir::new(game) {
         let entry = entry.map_err(|e| e.to_string())?;
         let rel = entry.path().strip_prefix(game).map_err(|e| e.to_string())?;
@@ -705,11 +710,18 @@ fn mount_vfs(
             }
 
             if !steam_api {
-            let fname = entry.path().file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-            if fname == "steam_api64.dll" || fname == "steam_api.dll" || fname == "steamworks_x64.dll" || fname == "steamworks.dll" {
-            continue;
-        }
-    }
+                let fname = entry.path().file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                if fname == "steam_api64.dll" || fname == "steam_api.dll"
+                    || fname == "steamworks_x64.dll" || fname == "steamworks.dll" {
+                    continue;
+                }
+            }
+
+            if overwrite_files.contains(rel) {
+                let over_src = over.join(rel);
+                fs::copy(&over_src, &dest).map_err(|e| e.to_string())?;
+                continue;
+            }
 
             #[cfg(windows)]
             std::os::windows::fs::symlink_file(entry.path(), &dest)
@@ -719,21 +731,16 @@ fn mount_vfs(
             std::os::unix::fs::symlink(entry.path(), &dest).map_err(|e| e.to_string())?;
         }
     }
-
-    for entry in walkdir::WalkDir::new(over) {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.path().is_file() {
+    for rel in &overwrite_files {
+        let dest = root.join(rel);
+        if dest.exists() {
             continue;
         }
-        let rel = entry.path().strip_prefix(over).map_err(|e| e.to_string())?;
-        let dest = root.join(rel);
+        let over_src = over.join(rel);
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        if dest.exists() {
-            fs::remove_file(&dest).map_err(|e| e.to_string())?;
-        }
-        fs::copy(entry.path(), &dest).map_err(|e| e.to_string())?;
+        fs::copy(&over_src, &dest).map_err(|e| e.to_string())?;
     }
 
     if gmloader_enabled {
@@ -743,7 +750,6 @@ fn mount_vfs(
             let data_win_src = game.join("data.win");
 
             if data_win_src.exists() {
-                // 1️⃣ Copier dans overwrite
                 fs::create_dir_all(data_win_dest.parent().unwrap()).map_err(|e| e.to_string())?;
                 fs::copy(&data_win_src, &data_win_dest).map_err(|e| e.to_string())?;
             }
@@ -757,12 +763,13 @@ fn mount_vfs(
 
         #[cfg(windows)]
         std::os::windows::fs::symlink_file(&data_win_dest, &vfs_data_win_dest)
-            .or_else(|_| fs::copy(&data_win_dest, &vfs_data_win_dest).map(|_| ())) // fallback
+            .or_else(|_| fs::copy(&data_win_dest, &vfs_data_win_dest).map(|_| ()))
             .map_err(|e| e.to_string())?;
 
         #[cfg(unix)]
         std::os::unix::fs::symlink(&data_win_dest, &vfs_data_win_dest)
             .map_err(|e| e.to_string())?;
+
         let gmloader_src = exe_dir()?.join("deps").join("GMLoader");
 
         if gmloader_src.exists() {
@@ -776,11 +783,7 @@ fn mount_vfs(
                 if rel == Path::new("GMLoader.ini") {
                     let data_win_path = {
                         let ow = over.join("data.win");
-                        if ow.exists() {
-                            ow
-                        } else {
-                            game.join("data.win")
-                        }
+                        if ow.exists() { ow } else { game.join("data.win") }
                     };
 
                     let mut content =
@@ -797,7 +800,7 @@ fn mount_vfs(
                                     "CheckHash=false".to_string()
                                 } else if line.starts_with("AutoGameStart=") {
                                     "AutoGameStart=false".to_string()
-                                } else if line.starts_with("GameData="){
+                                } else if line.starts_with("GameData=") {
                                     "GameData=data.win".to_string()
                                 } else {
                                     line.to_string()
@@ -807,11 +810,9 @@ fn mount_vfs(
                             .join("\r\n");
                     }
 
-                    // Copier dans overwrite
                     let overwrite_ini_path = over.join("GMLoader.ini");
                     fs::write(&overwrite_ini_path, &content).map_err(|e| e.to_string())?;
 
-                    // Symlink dans root
                     let vfs_ini_dest = root.join("GMLoader.ini");
                     #[cfg(windows)]
                     std::os::windows::fs::symlink_file(&overwrite_ini_path, &vfs_ini_dest)
@@ -824,7 +825,6 @@ fn mount_vfs(
                     continue;
                 }
 
-                // Tout le reste -> symlink direct dans root
                 let dest = root.join(rel);
                 if entry.path().is_dir() {
                     fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
@@ -842,7 +842,9 @@ fn mount_vfs(
             }
         }
     }
-    fs::write(root.join("steam_appid.txt"), if steam_api { "2231450" } else { "0" }).map_err(|e| e.to_string())?;
+
+    fs::write(root.join("steam_appid.txt"), if steam_api { "2231450" } else { "0" })
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -973,6 +975,7 @@ fn force_stop_game(state: State<'_, SharedState>) -> Result<(), String> {
     }
     Ok(())
 }
+
 #[tauri::command]
 fn download_mod(
     mod_name: String,
@@ -1007,11 +1010,11 @@ fn download_mod(
         fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
         fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
-    }  else if archive_type == "rar" {
-    let tmp_path = Path::new(&mods_path).join(&file_name);
-    fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
-    extract_rar(&tmp_path, &mod_dir)?;
-    fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else if archive_type == "rar" {
+        let tmp_path = Path::new(&mods_path).join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        extract_rar(&tmp_path, &mod_dir)?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
     } else {
         let out_path = mod_dir.join(&file_name);
         fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
@@ -1057,16 +1060,15 @@ fn install_local_mod(mod_name: String, mods_path: String, file_path: String) -> 
         sevenz_rust::decompress_file(&tmp_path, &mod_dir).map_err(|e| e.to_string())?;
         fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
     } else if archive_type == "rar" {
-    let tmp_path = Path::new(&mods_path).join(&file_name);
-    fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
-    extract_rar(&tmp_path, &mod_dir)?;
-    fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+        let tmp_path = Path::new(&mods_path).join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        extract_rar(&tmp_path, &mod_dir)?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
     } else {
         let out_path = mod_dir.join(&file_name);
         fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
     }
 
-    // Flatten si un seul sous-dossier
     let entries: Vec<_> = fs::read_dir(&mod_dir)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
@@ -1215,38 +1217,32 @@ fn list_files_by_ext(folder: String, ext: String) -> Result<Vec<String>, String>
 }
 
 #[tauri::command]
-fn is_process_running(name: String) -> bool {
-    let mut system = System::new_all();
-
-    system.refresh_processes(ProcessesToUpdate::All, true);
-
+fn is_process_running(name: String, state: State<'_, SysState>) -> bool {
+    let mut sys = match state.lock() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    sys.refresh_processes(ProcessesToUpdate::All, false);
     let target = name.to_lowercase();
-
-    system.processes().values().any(|process| {
-        let proc_name = process.name().to_string_lossy().to_lowercase();
-
-        proc_name == target || proc_name.contains(&target)
+    sys.processes().values().any(|p| {
+        p.name().to_string_lossy().to_lowercase().contains(&target)
     })
 }
 
 #[tauri::command]
-fn kill_process(name: String) -> usize {
-    let mut system = System::new_all();
-
-    system.refresh_processes(ProcessesToUpdate::All, true);
-
+fn kill_process(name: String, state: State<'_, SysState>) -> usize {
+    let mut sys = match state.lock() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    sys.refresh_processes(ProcessesToUpdate::All, false);
     let target = name.to_lowercase();
     let mut killed = 0;
-
-    for process in system.processes().values() {
-        let proc_name = process.name().to_string_lossy().to_lowercase();
-        if proc_name == target {
-            if process.kill() {
-                killed += 1;
-            }
+    for process in sys.processes().values() {
+        if process.name().to_string_lossy().to_lowercase() == target {
+            if process.kill() { killed += 1; }
         }
     }
-
     killed
 }
 
@@ -1354,16 +1350,18 @@ fn read_plugin_script(plugin_id: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
+    let sys_state: SysState = Arc::new(Mutex::new(System::new()));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_drpc::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(shared_state)
+        .manage(sys_state)
         .setup(|app| {
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
             {
-            use tauri_plugin_deep_link::DeepLinkExt;
-            app.deep_link().register_all()?;
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.deep_link().register_all()?;
             }
             Ok(())
         })

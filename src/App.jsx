@@ -71,8 +71,8 @@ function App() {
   });
 
   useEffect(() => {
-  document.documentElement.setAttribute("data-theme", "light");
-}, []);
+    document.documentElement.setAttribute("data-theme", "light");
+  }, []);
 
   const [pluginTabs, setPluginTabs] = useState([]);
   const [pluginReloadKey, setPluginReloadKey] = useState(0);
@@ -97,7 +97,7 @@ function App() {
       } catch (e) {
         console.error(e);
       }
-    }, 2000);
+    }, 5000);
     return () => clearInterval(poll);
   }, [pluginReloadKey]);
 

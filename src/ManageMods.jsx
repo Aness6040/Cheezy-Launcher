@@ -91,14 +91,13 @@ function ModCard({
           <p className="text-xs text-gray-400 truncate">
             {submitter} • {cat}
           </p>
+
           {description && (
             <p className="text-xs mt-1 line-clamp-2">{description}</p>
           )}
           {modData?.homepage && (
             <a
-              href={modData.homepage}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={handleViewPage}
               className="text-blue-500 text-xs mt-1 hover:underline"
             >
               {modData.homepage}
@@ -168,6 +167,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
 
   useEffect(() => {
     fetchMods();
+    if (operationRunning) return;
     const interval = setInterval(fetchMods, 2000);
     return () => clearInterval(interval);
   }, [modsDir]);
@@ -259,15 +259,17 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
               unlistenOutput();
               addLog(
                 chalk.yellow(
-                  "GMLoader Process finished, launching Pizza Tower...",
+                  "GMLoader Process finished, launching the game...",
                 ),
               );
-              await invoke("kill_process", { name: "PizzaTower.exe" });
+              await invoke("kill_process", {
+                name: effectiveSettings.exe_name || "PizzaTower.exe",
+              });
               launchPizzaTower();
             }
           });
         } else {
-          addLog(chalk.yellow("Launching Pizza Tower..."));
+          addLog(chalk.yellow("Launching the game..."));
           launchPizzaTower();
         }
       }
@@ -275,25 +277,22 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
       async function launchPizzaTower() {
         await invoke("launch_game", {
           vfsRoot,
-          exeName: "PizzaTower.exe",
+          exeName: effectiveSettings.exe_name || "PizzaTower.exe",
           launchArgs: effectiveSettings.launch_args || [],
         });
 
         addLog(chalk.green("Game is running"));
 
-        const poll = setInterval(async () => {
-          const runningGame = await invoke("is_operation_running");
-
-          if (!runningGame) {
-            clearInterval(poll);
-
+        const waitEnd = await listen("process-ended", async (event) => {
+          const exeName = effectiveSettings.exe_name || "PizzaTower.exe";
+          if (event.payload === exeName) {
+            waitEnd();
             addLog(chalk.yellow("Game closed, unmounting VFS..."));
             await invoke("unmount_vfs", { vfsRoot });
-
             addLog(chalk.green("VFS unmounted"));
             setOperationRunning(false);
           }
-        }, 2000);
+        });
       }
     } catch (e) {
       addLog(chalk.red(`Error: ${e}`));
