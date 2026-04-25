@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { joinPath } from "./pathUtils";
 import "./App.css";
 const themes = ["light", "dark"];
+import { platform } from "@tauri-apps/plugin-os";
 
 function SettingsTab({ onSave, applyTheme }) {
   const [settings, setSettings] = useState({
@@ -16,8 +17,10 @@ function SettingsTab({ onSave, applyTheme }) {
   const [saving, setSaving] = useState(false);
   const [prepatches, setPrepatches] = useState([]);
   const [customThemes, setCustomThemes] = useState([]);
+  const [os, setOs] = useState(null);
 
   useEffect(() => {
+    const os = platform();
     invoke("get_settings")
       .then((data) => {
         setSettings(data);
@@ -224,6 +227,62 @@ function SettingsTab({ onSave, applyTheme }) {
           ))}
         </select>
       </div>
+      {os && os !== "windows" && (
+        <div className="collapse collapse-arrow border border-base-300 bg-base-100 rounded-box">
+          <input type="checkbox" />
+
+          <div className="collapse-title text-sm font-semibold">
+            Wine / Proton (Linux)
+          </div>
+
+          <div className="collapse-content flex flex-col gap-3">
+            <select
+              name="wine_mode"
+              value={settings.wine_mode || "wine"}
+              onChange={handleChange}
+              className="select select-bordered select-sm"
+            >
+              <option value="wine">Wine (système)</option>
+              <option value="proton">Proton (Steam stable)</option>
+              <option value="proton_experimental">Proton Experimental</option>
+              <option value="custom">Chemin custom</option>
+            </select>
+
+            {settings.wine_mode === "custom" && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  name="wine_path"
+                  value={settings.wine_path || ""}
+                  onChange={handleChange}
+                  placeholder="/home/user/.local/share/Steam/steamapps/common/Proton 9.0/proton"
+                  className="input input-bordered input-sm flex-1"
+                />
+                <button
+                  onClick={() => handleBrowse("wine_path")}
+                  className="btn btn-sm btn-outline"
+                >
+                  Browse
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col">
+              <label className="mb-1 text-xs text-base-content/60">
+                WINEPREFIX (optionnel)
+              </label>
+              <input
+                type="text"
+                name="wine_prefix"
+                value={settings.wine_prefix || ""}
+                onChange={handleChange}
+                placeholder="/home/user/.wine"
+                className="input input-bordered input-sm"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <button
         onClick={handleSave}

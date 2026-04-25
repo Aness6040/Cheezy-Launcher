@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -8,8 +10,6 @@ use tauri::Emitter;
 use tauri::{Manager, State};
 use tauri_plugin_single_instance::init as single_instance;
 use unrar::Archive;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 #[derive(Default)]
 struct AppState {
@@ -43,10 +43,17 @@ struct Settings {
     gmloader_enabled: bool,
     #[serde(default)]
     discord_rpc: bool,
+    #[serde(default)]
+    wine_mode: String, // "wine", "proton", "proton_experimental", "custom"
+    #[serde(default)]
+    wine_path: String, // custom path if wine_mode is"custom"
+    #[serde(default)]
+    wine_prefix: String, // custom WINEPREFIX (optional)
 }
 
 fn detect_archive_type(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]) || bytes.starts_with(&[0x50, 0x4B, 0x05, 0x06]) {
+    if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]) || bytes.starts_with(&[0x50, 0x4B, 0x05, 0x06])
+    {
         "zip"
     } else if bytes.starts_with(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
         "7z"
@@ -66,17 +73,13 @@ pub fn extract_rar(src: &Path, dst: &Path) -> Result<(), String> {
 
     while let Some(header) = archive.read_header().map_err(|e| e.to_string())? {
         archive = if header.entry().is_file() {
-            let entry_path = dst.join(
-                header.entry().filename.to_string_lossy().replace('\\', "/")
-            );
+            let entry_path = dst.join(header.entry().filename.to_string_lossy().replace('\\', "/"));
             if let Some(parent) = entry_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
             header.extract_with_base(dst).map_err(|e| e.to_string())?
         } else {
-            let dir_path = dst.join(
-                header.entry().filename.to_string_lossy().replace('\\', "/")
-            );
+            let dir_path = dst.join(header.entry().filename.to_string_lossy().replace('\\', "/"));
             fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
             header.skip().map_err(|e| e.to_string())?
         };
@@ -135,6 +138,9 @@ fn get_settings() -> Result<Settings, String> {
         steam_api: true,
         gmloader_enabled: false,
         discord_rpc: true,
+        wine_mode: "wine".to_string(),
+        wine_path: String::new(),
+        wine_prefix: String::new(),
     };
     fs::write(
         &config_path,
@@ -145,16 +151,83 @@ fn get_settings() -> Result<Settings, String> {
     Ok(default)
 }
 
-fn build_command(exe_path: &Path) -> Command {
+fn build_command(exe_path: &Path, settings: &Settings) -> Command {
     #[cfg(windows)]
     {
         Command::new(exe_path)
     }
     #[cfg(not(windows))]
     {
-        let mut cmd = Command::new("wine");
+        let (runner, prefix) = resolve_wine_runner(settings);
+        let mut cmd = Command::new(runner);
+        if let Some(p) = prefix {
+            cmd.env("WINEPREFIX", p);
+        }
         cmd.arg(exe_path);
         cmd
+    }
+}
+
+#[cfg(not(windows))]
+fn resolve_wine_runner(settings: &Settings) -> (String, Option<String>) {
+    let prefix = if settings.wine_prefix.is_empty() {
+        None
+    } else {
+        Some(settings.wine_prefix.clone())
+    };
+
+    match settings.wine_mode.as_str() {
+        "proton" => {
+            // Cherche Proton stable via Steam
+            if let Some(path) = find_proton_path(false) {
+                return (path, prefix);
+            }
+            ("wine".to_string(), prefix)
+        }
+        "proton_experimental" => {
+            if let Some(path) = find_proton_path(true) {
+                return (path, prefix);
+            }
+            ("wine".to_string(), prefix)
+        }
+        "custom" if !settings.wine_path.is_empty() => (settings.wine_path.clone(), prefix),
+        _ => ("wine".to_string(), prefix),
+    }
+}
+
+#[cfg(not(windows))]
+fn find_proton_path(experimental: bool) -> Option<String> {
+    let steam_dir = steamlocate::SteamDir::locate().ok()?;
+    // App IDs : Proton stable = 1245040, Proton Experimental = 1493710
+    let app_id = if experimental { 1493710 } else { 1245040 };
+    let (_, lib) = steam_dir.find_app(app_id).ok()??;
+    let proton = lib
+        .path()
+        .join("steamapps")
+        .join("common")
+        .join(if experimental {
+            "Proton - Experimental"
+        } else {
+            "Proton 9.0 (Beta)"
+        })
+        .join("proton");
+    if proton.exists() {
+        Some(proton.to_string_lossy().to_string())
+    } else {
+        // fallback : chercher n'importe quel dossier Proton dans steamapps/common
+        let common = lib.path().join("steamapps").join("common");
+        fs::read_dir(&common)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                if experimental {
+                    name.contains("proton") && name.contains("experimental")
+                } else {
+                    name.contains("proton") && !name.contains("experimental")
+                }
+            })
+            .map(|e| e.path().join("proton").to_string_lossy().to_string())
     }
 }
 
@@ -176,7 +249,10 @@ fn locate_game_data_dir() -> Option<String> {
     #[cfg(windows)]
     {
         std::env::var("APPDATA").ok().map(|p| {
-            Path::new(&p).join("PizzaTower_GM2").to_string_lossy().to_string()
+            Path::new(&p)
+                .join("PizzaTower_GM2")
+                .to_string_lossy()
+                .to_string()
         })
     }
     #[cfg(not(windows))]
@@ -297,7 +373,7 @@ fn move_item(src_path: String, dest_path: String) -> Result<(), String> {
 #[tauri::command]
 fn open_item(path: String) -> Result<(), String> {
     let clean_path = normalize_path(&path);
-    
+
     let result = match std::env::consts::OS {
         "macos" => Command::new("open").arg(&clean_path).spawn(),
         "windows" => Command::new("explorer").arg(&clean_path).spawn(),
@@ -318,6 +394,7 @@ fn apply_xdelta_patch(
     let source_path = normalize_path(&source);
     let patch_path = normalize_path(&patch);
     let output_path = normalize_path(&output);
+    let settings = get_settings()?;
 
     if !source_path.exists() {
         return Err("Source file not found".into());
@@ -326,15 +403,11 @@ fn apply_xdelta_patch(
         return Err("Patch file not found".into());
     }
 
-    let mut cmd = build_command(&xdelta);
+    let mut cmd = build_command(&xdelta, &settings);
 
     #[cfg(windows)]
     {
-        cmd.creation_flags(
-            0x08000000
-            | 0x00000008
-            | 0x00000200
-        );
+        cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
     }
     cmd.arg("-d");
     if overwrite {
@@ -376,7 +449,7 @@ fn prepare_overwrite(
     let log = |msg: &str| {
         let _ = app_handle.emit("prepare-log", msg.to_string());
     };
-
+    let settings = get_settings()?;
     let over = Path::new(&overwrite_path);
     let game_path = Path::new(&game_dir);
 
@@ -399,10 +472,15 @@ fn prepare_overwrite(
     use std::collections::HashMap;
     let game_files_by_name: HashMap<String, &PathBuf> = game_files
         .iter()
-        .map(|p| (
-            p.file_name().unwrap_or_default().to_string_lossy().to_lowercase(),
-            p,
-        ))
+        .map(|p| {
+            (
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase(),
+                p,
+            )
+        })
         .collect();
 
     log(&format!("{} game files found", game_files.len()));
@@ -455,7 +533,13 @@ fn prepare_overwrite(
 
         for entry in &all_entries {
             let file_path = entry.path();
-            if file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase() == "txt" {
+            if file_path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase()
+                == "txt"
+            {
                 let content = fs::read_to_string(file_path).unwrap_or_default();
                 for line in content.lines() {
                     let lower = line.to_lowercase();
@@ -465,9 +549,17 @@ fn prepare_overwrite(
                             let rest = rest[1..].trim_start();
                             if rest.starts_with('"') {
                                 if let Some(end_idx) = rest[1..].find('"') {
-                                    let val = line[idx + 4..].trim_start()[1..].trim_start()[1..1+end_idx].to_string();
+                                    let val = line[idx + 4..].trim_start()[1..].trim_start()
+                                        [1..1 + end_idx]
+                                        .to_string();
                                     langlist.push(val);
-                                    langlistfile.push(file_path.file_stem().unwrap().to_string_lossy().to_string());
+                                    langlistfile.push(
+                                        file_path
+                                            .file_stem()
+                                            .unwrap()
+                                            .to_string_lossy()
+                                            .to_string(),
+                                    );
                                     break;
                                 }
                             }
@@ -480,9 +572,21 @@ fn prepare_overwrite(
         log("Copying files...");
         for entry in &all_entries {
             let file_path = entry.path();
-            let file_name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let extension = file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
-            let mut basename = file_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            let file_name = file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let extension = file_path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            let mut basename = file_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
 
             if file_name == "mod.json" || file_name == "settings.json" || extension == "xdelta" {
                 continue;
@@ -512,11 +616,22 @@ fn prepare_overwrite(
                 log(&format!("    Copied {} as data.win", file_name));
                 handled = true;
             } else if extension == "bank" {
-                let parent_dir_name = file_path.parent().unwrap().file_name().unwrap_or_default().to_string_lossy().to_string();
-                let dest = if parent_dir_name.eq_ignore_ascii_case("Desktop") || parent_dir_name.eq_ignore_ascii_case(mod_name) {
+                let parent_dir_name = file_path
+                    .parent()
+                    .unwrap()
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let dest = if parent_dir_name.eq_ignore_ascii_case("Desktop")
+                    || parent_dir_name.eq_ignore_ascii_case(mod_name)
+                {
                     over.join("sound").join("Desktop").join(&file_name)
                 } else {
-                    over.join("sound").join("Desktop").join(&parent_dir_name).join(&file_name)
+                    over.join("sound")
+                        .join("Desktop")
+                        .join(&parent_dir_name)
+                        .join(&file_name)
                 };
                 fs::create_dir_all(dest.parent().unwrap()).unwrap();
                 fs::copy(file_path, &dest).unwrap();
@@ -541,7 +656,9 @@ fn prepare_overwrite(
                 log(&format!("    Copied {} to language folder", file_name));
                 handled = true;
             } else if extension == "png" {
-                basename = basename.trim_start_matches(|c: char| c.is_ascii_digit()).to_string();
+                basename = basename
+                    .trim_start_matches(|c: char| c.is_ascii_digit())
+                    .to_string();
 
                 let mut match_found = None;
                 for lang in &langlist {
@@ -562,16 +679,26 @@ fn prepare_overwrite(
                 if let Some(m) = match_found {
                     basename = m;
                 } else {
-                    basename = basename.trim_end_matches(|c: char| c.is_ascii_digit()).to_string();
+                    basename = basename
+                        .trim_end_matches(|c: char| c.is_ascii_digit())
+                        .to_string();
                 }
 
                 let mut pngcopied = false;
                 let font_list = ["bigfont", "captionfont", "credits", "tutorial"];
 
-                let starts_with_lang = langlist.iter().any(|x| basename.to_lowercase().starts_with(&x.to_lowercase()));
-                let is_font = font_list.iter().any(|x| basename.to_lowercase().starts_with(x));
+                let starts_with_lang = langlist
+                    .iter()
+                    .any(|x| basename.to_lowercase().starts_with(&x.to_lowercase()));
+                let is_font = font_list
+                    .iter()
+                    .any(|x| basename.to_lowercase().starts_with(x));
 
-                if (langlist.contains(&basename) || langlistfile.contains(&basename) || starts_with_lang) && !is_font {
+                if (langlist.contains(&basename)
+                    || langlistfile.contains(&basename)
+                    || starts_with_lang)
+                    && !is_font
+                {
                     let dest = over.join("lang").join("graphics").join(&file_name);
                     fs::create_dir_all(dest.parent().unwrap()).unwrap();
                     fs::copy(file_path, &dest).unwrap();
@@ -579,7 +706,11 @@ fn prepare_overwrite(
                     pngcopied = true;
                 } else {
                     for i in 0..langlist.len() {
-                        if !pngcopied && (font_list.contains(&basename.as_str()) || basename.ends_with(&format!("_{}", langlist[i])) || basename.ends_with(&format!("_{}", langlistfile[i]))) {
+                        if !pngcopied
+                            && (font_list.contains(&basename.as_str())
+                                || basename.ends_with(&format!("_{}", langlist[i]))
+                                || basename.ends_with(&format!("_{}", langlistfile[i])))
+                        {
                             let dest = over.join("lang").join("fonts").join(&file_name);
                             fs::create_dir_all(dest.parent().unwrap()).unwrap();
                             fs::copy(file_path, &dest).unwrap();
@@ -607,7 +738,9 @@ fn prepare_overwrite(
             }
 
             if !handled {
-                let rel = file_path.strip_prefix(&mod_base).map_err(|e| e.to_string())?;
+                let rel = file_path
+                    .strip_prefix(&mod_base)
+                    .map_err(|e| e.to_string())?;
                 let dest = over.join(rel);
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -628,7 +761,11 @@ fn prepare_overwrite(
                 let source = game_files_by_name
                     .get("data.win.po")
                     .copied()
-                    .or_else(|| game_files_by_name.get(data_target.to_lowercase().as_str()).copied())
+                    .or_else(|| {
+                        game_files_by_name
+                            .get(data_target.to_lowercase().as_str())
+                            .copied()
+                    })
                     .ok_or_else(|| "data.win not found for prepatch".to_string())?;
 
                 let dest = over.join(&data_target);
@@ -636,15 +773,11 @@ fn prepare_overwrite(
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
 
-                let mut cmd = build_command(&xdelta);
+                let mut cmd = build_command(&xdelta, &settings);
 
                 #[cfg(windows)]
                 {
-                    cmd.creation_flags(
-                        0x08000000
-                        | 0x00000008
-                        | 0x00000200
-                    );
+                    cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
                 }
 
                 let status = cmd
@@ -675,33 +808,60 @@ fn prepare_overwrite(
         if over.exists() {
             for ow_entry in walkdir::WalkDir::new(over) {
                 if let Ok(entry) = ow_entry {
-                    if entry.path().is_file() { possible_sources.push(entry.path().to_path_buf()); }
+                    if entry.path().is_file() {
+                        possible_sources.push(entry.path().to_path_buf());
+                    }
                 }
             }
         }
         for game_file in &game_files {
-            let po_path = game_file.with_file_name(format!("{}.po", game_file.file_name().unwrap_or_default().to_string_lossy()));
-            if po_path.exists() { possible_sources.push(po_path); }
+            let po_path = game_file.with_file_name(format!(
+                "{}.po",
+                game_file.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            if po_path.exists() {
+                possible_sources.push(po_path);
+            }
             possible_sources.push(game_file.clone());
         }
 
         let mut unique_sources = Vec::new();
         let mut seen_sources = std::collections::HashSet::new();
         for src in possible_sources {
-            if seen_sources.insert(src.clone()) { unique_sources.push(src); }
+            if seen_sources.insert(src.clone()) {
+                unique_sources.push(src);
+            }
         }
 
         for entry in &all_entries {
-            let file_name = entry.path().file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-            if !file_name.ends_with(".xdelta") { continue; }
+            let file_name = entry
+                .path()
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            if !file_name.ends_with(".xdelta") {
+                continue;
+            }
             log(&format!("  Patching: {}", file_name));
 
-            let expected_stem = entry.path().file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+            let expected_stem = entry
+                .path()
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
             let mut intended_dest_rel = PathBuf::from(&data_target);
 
             for game_file in &game_files {
                 if let Ok(rel) = game_file.strip_prefix(game_path) {
-                    if rel.file_name().unwrap_or_default().to_string_lossy().to_lowercase() == expected_stem {
+                    if rel
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase()
+                        == expected_stem
+                    {
                         intended_dest_rel = rel.to_path_buf();
                         break;
                     }
@@ -714,30 +874,58 @@ fn prepare_overwrite(
 
             let mut smart_candidates = Vec::new();
             smart_candidates.push(empty_file.clone());
-            if dest.exists() { smart_candidates.push(dest.clone()); }
-            
-            let game_dest = game_path.join(&intended_dest_rel);
-            let po_dest = game_dest.with_file_name(format!("{}.po", game_dest.file_name().unwrap_or_default().to_string_lossy()));
-            if po_dest.exists() { smart_candidates.push(po_dest); }
-            if game_dest.exists() { smart_candidates.push(game_dest.clone()); }
-            
-            let data_win_path = game_path.join(&data_target);
-            if data_win_path.exists() { smart_candidates.push(data_win_path); }
+            if dest.exists() {
+                smart_candidates.push(dest.clone());
+            }
 
-            for src in &unique_sources { if !smart_candidates.contains(src) { smart_candidates.push(src.clone()); } }
+            let game_dest = game_path.join(&intended_dest_rel);
+            let po_dest = game_dest.with_file_name(format!(
+                "{}.po",
+                game_dest.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            if po_dest.exists() {
+                smart_candidates.push(po_dest);
+            }
+            if game_dest.exists() {
+                smart_candidates.push(game_dest.clone());
+            }
+
+            let data_win_path = game_path.join(&data_target);
+            if data_win_path.exists() {
+                smart_candidates.push(data_win_path);
+            }
+
+            for src in &unique_sources {
+                if !smart_candidates.contains(src) {
+                    smart_candidates.push(src.clone());
+                }
+            }
 
             for source in &smart_candidates {
-                let mut cmd = build_command(&xdelta);
+                let mut cmd = build_command(&xdelta, &settings);
                 #[cfg(windows)]
-                { cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200); }
+                {
+                    cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
+                }
 
-                let status = cmd.stdout(Stdio::null()).stderr(Stdio::null()).stdin(Stdio::null())
-                    .args(["-d", "-f", "-s"]).arg(source).arg(entry.path()).arg(&tmp).status();
+                let status = cmd
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .stdin(Stdio::null())
+                    .args(["-d", "-f", "-s"])
+                    .arg(source)
+                    .arg(entry.path())
+                    .arg(&tmp)
+                    .status();
 
                 if let Ok(st) = status {
                     if st.success() {
-                        if let Some(p) = dest.parent() { let _ = fs::create_dir_all(p); }
-                        if dest.exists() { let _ = fs::remove_file(&dest); }
+                        if let Some(p) = dest.parent() {
+                            let _ = fs::create_dir_all(p);
+                        }
+                        if dest.exists() {
+                            let _ = fs::remove_file(&dest);
+                        }
                         if fs::rename(&tmp, &dest).is_ok() {
                             log(&format!("    ✓ Patched -> {}", intended_dest_rel.display()));
                             patched = true;
@@ -745,17 +933,23 @@ fn prepare_overwrite(
                         }
                     }
                 }
-                if tmp.exists() { let _ = fs::remove_file(&tmp); }
+                if tmp.exists() {
+                    let _ = fs::remove_file(&tmp);
+                }
             }
 
             if !patched {
                 let msg = format!("    ✗ No source found for: {}", file_name);
                 log(&msg);
-                if empty_file.exists() { let _ = fs::remove_file(&empty_file); }
+                if empty_file.exists() {
+                    let _ = fs::remove_file(&empty_file);
+                }
                 return Err(msg);
             }
         }
-        if empty_file.exists() { let _ = fs::remove_file(&empty_file); }
+        if empty_file.exists() {
+            let _ = fs::remove_file(&empty_file);
+        }
     }
 
     let src = over.join(&data_target);
@@ -848,9 +1042,7 @@ fn mount_vfs(
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_file())
-            .filter_map(|e| {
-                e.path().strip_prefix(over).ok().map(|r| r.to_path_buf())
-            })
+            .filter_map(|e| e.path().strip_prefix(over).ok().map(|r| r.to_path_buf()))
             .collect()
     } else {
         HashSet::new()
@@ -869,9 +1061,17 @@ fn mount_vfs(
             }
 
             if !steam_api {
-                let fname = entry.path().file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                if fname == "steam_api64.dll" || fname == "steam_api.dll"
-                    || fname == "steamworks_x64.dll" || fname == "steamworks.dll" {
+                let fname = entry
+                    .path()
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase();
+                if fname == "steam_api64.dll"
+                    || fname == "steam_api.dll"
+                    || fname == "steamworks_x64.dll"
+                    || fname == "steamworks.dll"
+                {
                     continue;
                 }
             }
@@ -929,7 +1129,11 @@ fn mount_vfs(
                 if rel == Path::new("GMLoader.ini") {
                     let data_win_path = {
                         let ow = over.join("data.win");
-                        if ow.exists() { ow } else { game.join("data.win") }
+                        if ow.exists() {
+                            ow
+                        } else {
+                            game.join("data.win")
+                        }
                     };
 
                     let mut content =
@@ -977,8 +1181,11 @@ fn mount_vfs(
         }
     }
 
-    fs::write(root.join("steam_appid.txt"), if steam_api { "2231450" } else { "0" })
-        .map_err(|e| e.to_string())?;
+    fs::write(
+        root.join("steam_appid.txt"),
+        if steam_api { "2231450" } else { "0" },
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1007,6 +1214,7 @@ async fn launch_game(
         }
         s.operation_running = true;
     }
+    let settings = get_settings()?;
 
     let exe_path = Path::new(&vfs_root).join(&exe_name);
     if !exe_path.exists() {
@@ -1016,7 +1224,7 @@ async fn launch_game(
     }
 
     let mut child = {
-        let mut cmd = build_command(&exe_path);
+        let mut cmd = build_command(&exe_path, &settings);
         cmd.current_dir(&vfs_root)
             .args(&launch_args)
             .stdout(std::process::Stdio::piped())
@@ -1124,10 +1332,14 @@ async fn download_and_install_mod(
 ) -> Result<(), String> {
     use std::io::Cursor;
 
-    let client = reqwest::Client::builder().user_agent("Mozilla/5.0").redirect(reqwest::redirect::Policy::limited(10)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let total_size = response.content_length().unwrap_or(0);
-    
+
     let mut file_bytes = Vec::new();
     let mut downloaded: u64 = 0;
     let mut last_emit = 0;
@@ -1142,7 +1354,10 @@ async fn download_and_install_mod(
             if percent >= last_emit + 2 || percent == 100 {
                 last_emit = percent;
                 let downloaded_mb = downloaded as f64 / 1_048_576.0;
-                let payload = format!(r#"{{"file_name": "{}", "percent": {}, "downloaded_mb": {:.2}, "total_mb": {:.2}}}"#, file_name, percent, downloaded_mb, total_mb);
+                let payload = format!(
+                    r#"{{"file_name": "{}", "percent": {}, "downloaded_mb": {:.2}, "total_mb": {:.2}}}"#,
+                    file_name, percent, downloaded_mb, total_mb
+                );
                 let _ = app_handle.emit("download-progress", payload);
             }
         }
@@ -1243,7 +1458,10 @@ fn install_local_mod(mod_name: String, mods_path: String, file_path: String) -> 
         let base_dir = dirs[0].path();
         for entry in walkdir::WalkDir::new(&base_dir) {
             let entry = entry.map_err(|e| e.to_string())?;
-            let rel = entry.path().strip_prefix(&base_dir).map_err(|e| e.to_string())?;
+            let rel = entry
+                .path()
+                .strip_prefix(&base_dir)
+                .map_err(|e| e.to_string())?;
             let dest = mod_dir.join(rel);
             if entry.path().is_dir() {
                 fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
@@ -1329,8 +1547,7 @@ fn detect_game_data_dir() -> Result<String, String> {
     #[cfg(not(windows))]
     {
         if let Ok(home) = std::env::var("HOME") {
-            let path = Path::new(&home)
-                .join(".local/share/PizzaTower_GM2");
+            let path = Path::new(&home).join(".local/share/PizzaTower_GM2");
 
             return Ok(path.to_string_lossy().to_string());
         }
@@ -1401,10 +1618,20 @@ fn list_files_by_ext(folder: String, ext: String) -> Result<Vec<String>, String>
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         return Ok(vec![]);
     }
-    Ok(fs::read_dir(&dir).map_err(|e| e.to_string())?
+    Ok(fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|x| x.to_string_lossy() == ext).unwrap_or(false))
-        .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string()))
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|x| x.to_string_lossy() == ext)
+                .unwrap_or(false)
+        })
+        .filter_map(|e| {
+            e.path()
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+        })
         .collect())
 }
 
@@ -1416,9 +1643,9 @@ fn is_process_running(name: String, state: State<'_, SysState>) -> bool {
     };
     sys.refresh_processes(ProcessesToUpdate::All, false);
     let target = name.to_lowercase();
-    sys.processes().values().any(|p| {
-        p.name().to_string_lossy().to_lowercase().contains(&target)
-    })
+    sys.processes()
+        .values()
+        .any(|p| p.name().to_string_lossy().to_lowercase().contains(&target))
 }
 
 #[tauri::command]
@@ -1432,7 +1659,9 @@ fn kill_process(name: String, state: State<'_, SysState>) -> usize {
     let mut killed = 0;
     for process in sys.processes().values() {
         if process.name().to_string_lossy().to_lowercase() == target {
-            if process.kill() { killed += 1; }
+            if process.kill() {
+                killed += 1;
+            }
         }
     }
     killed
@@ -1478,11 +1707,16 @@ fn list_plugins() -> Result<Vec<PluginManifest>, String> {
     let mut manifests = vec![];
     for entry in fs::read_dir(&plugins_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.path().is_dir() { continue; }
+        if !entry.path().is_dir() {
+            continue;
+        }
         let manifest_path = entry.path().join("manifest.json");
-        if !manifest_path.exists() { continue; }
+        if !manifest_path.exists() {
+            continue;
+        }
         let content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
-        let mut manifest: PluginManifest = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        let mut manifest: PluginManifest =
+            serde_json::from_str(&content).map_err(|e| e.to_string())?;
         manifest.enabled = enabled_ids.contains(&manifest.id);
         manifests.push(manifest);
     }
@@ -1490,10 +1724,7 @@ fn list_plugins() -> Result<Vec<PluginManifest>, String> {
 }
 
 fn get_plugin_dir(plugin_id: &str) -> PathBuf {
-    exe_dir()
-        .unwrap()
-        .join("plugins")
-        .join(plugin_id)
+    exe_dir().unwrap().join("plugins").join(plugin_id)
 }
 
 #[tauri::command]
@@ -1508,25 +1739,21 @@ fn set_plugin_enabled(plugin_id: String, enabled: bool) -> Result<(), String> {
     };
 
     if enabled {
-        if !ids.contains(&plugin_id) { ids.push(plugin_id); }
+        if !ids.contains(&plugin_id) {
+            ids.push(plugin_id);
+        }
     } else {
         ids.retain(|id| id != &plugin_id);
     }
 
-    fs::write(&enabled_path, serde_json::to_string_pretty(&ids).unwrap())
-        .map_err(|e| e.to_string())
+    fs::write(&enabled_path, serde_json::to_string_pretty(&ids).unwrap()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn read_plugin_script(plugin_id: String) -> Result<String, String> {
     let dir = get_plugin_dir(&plugin_id);
 
-    let candidates = [
-        "index.tsx",
-        "index.ts",
-        "index.jsx",
-        "index.js",
-    ];
+    let candidates = ["index.tsx", "index.ts", "index.jsx", "index.js"];
 
     for file in candidates {
         let path = dir.join(file);
@@ -1538,12 +1765,12 @@ fn read_plugin_script(plugin_id: String) -> Result<String, String> {
     Err("No entry file found".into())
 }
 
-
 pub fn run() {
     let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
     let sys_state: SysState = Arc::new(Mutex::new(System::new()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_drpc::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(shared_state)

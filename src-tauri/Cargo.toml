@@ -36,6 +36,7 @@ sysinfo = "0.38.4"
 tauri-plugin-deep-link = "2"
 unrar = "0.5.8"
 tauri-plugin-drpc = "0.1.6"
+tauri-plugin-os = "2"
 
 [build]
 incremental = true
