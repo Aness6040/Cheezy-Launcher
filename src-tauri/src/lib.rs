@@ -450,29 +450,171 @@ fn prepare_overwrite(
 
         all_entries.sort_by_key(|e| e.path().to_path_buf());
 
+        let mut langlist = Vec::new();
+        let mut langlistfile = Vec::new();
+
+        for entry in &all_entries {
+            let file_path = entry.path();
+            if file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase() == "txt" {
+                let content = fs::read_to_string(file_path).unwrap_or_default();
+                for line in content.lines() {
+                    let lower = line.to_lowercase();
+                    if let Some(idx) = lower.find("lang") {
+                        let rest = &lower[idx + 4..].trim_start();
+                        if rest.starts_with('=') {
+                            let rest = rest[1..].trim_start();
+                            if rest.starts_with('"') {
+                                if let Some(end_idx) = rest[1..].find('"') {
+                                    let val = line[idx + 4..].trim_start()[1..].trim_start()[1..1+end_idx].to_string();
+                                    langlist.push(val);
+                                    langlistfile.push(file_path.file_stem().unwrap().to_string_lossy().to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         log("Copying files...");
         for entry in &all_entries {
-            let file_name = entry
-                .path()
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_lowercase();
+            let file_path = entry.path();
+            let file_name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let extension = file_path.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+            let mut basename = file_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
 
-            if file_name == "mod.json" || file_name == "settings.json" || file_name.ends_with(".xdelta") {
+            if file_name == "mod.json" || file_name == "settings.json" || extension == "xdelta" {
                 continue;
             }
 
-            let rel = entry
-                .path()
-                .strip_prefix(&mod_base)
-                .map_err(|e| e.to_string())?;
-            let dest = over.join(rel);
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            let mut handled = false;
+
+            if extension == "txt" {
+                let content = fs::read_to_string(file_path).unwrap_or_default();
+                if content.to_lowercase().contains("lang = ") {
+                    let dest = over.join("lang").join(&file_name);
+                    fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                    fs::copy(file_path, &dest).unwrap();
+                    log(&format!("    Copied {} to lang folder", file_name));
+                    handled = true;
+                } else if basename.to_lowercase().contains("credits") {
+                    let dest = over.join(&file_name);
+                    fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                    fs::copy(file_path, &dest).unwrap();
+                    log(&format!("    Copied {} to game folder", file_name));
+                    handled = true;
+                }
+            } else if extension == "win" {
+                let dest = over.join("data.win");
+                fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                fs::copy(file_path, &dest).unwrap();
+                log(&format!("    Copied {} as data.win", file_name));
+                handled = true;
+            } else if extension == "bank" {
+                let parent_dir_name = file_path.parent().unwrap().file_name().unwrap_or_default().to_string_lossy().to_string();
+                let dest = if parent_dir_name.eq_ignore_ascii_case("Desktop") || parent_dir_name.eq_ignore_ascii_case(mod_name) {
+                    over.join("sound").join("Desktop").join(&file_name)
+                } else {
+                    over.join("sound").join("Desktop").join(&parent_dir_name).join(&file_name)
+                };
+                fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                fs::copy(file_path, &dest).unwrap();
+                log(&format!("    Copied {} to sound folder", file_name));
+                handled = true;
+            } else if extension == "dll" || extension == "mp4" {
+                let dest = over.join(&file_name);
+                fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                fs::copy(file_path, &dest).unwrap();
+                log(&format!("    Copied {} to game folder", file_name));
+                handled = true;
+            } else if extension == "ttf" || extension == "otf" {
+                let dest = over.join("lang").join("fonts").join(&file_name);
+                fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                fs::copy(file_path, &dest).unwrap();
+                log(&format!("    Copied {} to fonts folder", file_name));
+                handled = true;
+            } else if extension == "def" {
+                let dest = over.join("lang").join(&file_name);
+                fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                fs::copy(file_path, &dest).unwrap();
+                log(&format!("    Copied {} to language folder", file_name));
+                handled = true;
+            } else if extension == "png" {
+                basename = basename.trim_start_matches(|c: char| c.is_ascii_digit()).to_string();
+
+                let mut match_found = None;
+                for lang in &langlist {
+                    if basename.to_lowercase().starts_with(&lang.to_lowercase()) {
+                        match_found = Some(lang.clone());
+                        break;
+                    }
+                }
+                if match_found.is_none() {
+                    for langf in &langlistfile {
+                        if basename.to_lowercase().starts_with(&langf.to_lowercase()) {
+                            match_found = Some(langf.clone());
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(m) = match_found {
+                    basename = m;
+                } else {
+                    basename = basename.trim_end_matches(|c: char| c.is_ascii_digit()).to_string();
+                }
+
+                let mut pngcopied = false;
+                let font_list = ["bigfont", "captionfont", "credits", "tutorial"];
+
+                let starts_with_lang = langlist.iter().any(|x| basename.to_lowercase().starts_with(&x.to_lowercase()));
+                let is_font = font_list.iter().any(|x| basename.to_lowercase().starts_with(x));
+
+                if (langlist.contains(&basename) || langlistfile.contains(&basename) || starts_with_lang) && !is_font {
+                    let dest = over.join("lang").join("graphics").join(&file_name);
+                    fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                    fs::copy(file_path, &dest).unwrap();
+                    log(&format!("    Copied {} to graphics folder", file_name));
+                    pngcopied = true;
+                } else {
+                    for i in 0..langlist.len() {
+                        if !pngcopied && (font_list.contains(&basename.as_str()) || basename.ends_with(&format!("_{}", langlist[i])) || basename.ends_with(&format!("_{}", langlistfile[i]))) {
+                            let dest = over.join("lang").join("fonts").join(&file_name);
+                            fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                            fs::copy(file_path, &dest).unwrap();
+                            log(&format!("    Copied {} to fonts folder", file_name));
+                            pngcopied = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !pngcopied {
+                    log(&format!("    Found {} but doesn't seem to have an attached language file so skipping", file_name));
+                }
+                handled = true;
+            } else if extension == "json" {
+                if langlist.contains(&basename) || langlistfile.contains(&basename) {
+                    let dest = over.join("lang").join("graphics").join(&file_name);
+                    fs::create_dir_all(dest.parent().unwrap()).unwrap();
+                    fs::copy(file_path, &dest).unwrap();
+                    log(&format!("    Copied {} to graphics folder", file_name));
+                } else {
+                    log(&format!("    Found {} but doesn't seem to have an attached language file so skipping", file_name));
+                }
+                handled = true;
             }
-            fs::copy(entry.path(), &dest).map_err(|e| e.to_string())?;
-            log(&format!("    Copied: {}", rel.display()));
+
+            if !handled {
+                let rel = file_path.strip_prefix(&mod_base).map_err(|e| e.to_string())?;
+                let dest = over.join(rel);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::copy(file_path, &dest).map_err(|e| e.to_string())?;
+                log(&format!("    Copied: {}", rel.display()));
+            }
         }
 
         if !prepatch.is_empty() {
@@ -525,127 +667,95 @@ fn prepare_overwrite(
         }
 
         log("Applying patches...");
-        for entry in &all_entries {
-            let file_name = entry
-                .path()
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_lowercase();
+        let empty_file = over.join("cheezy_empty.tmp");
+        let _ = fs::write(&empty_file, "");
 
-            if !file_name.ends_with(".xdelta") {
-                continue;
-            }
-
-            log(&format!("  Patching: {}", file_name));
-            let mut patched = false;
-
-            let mut candidates: Vec<PathBuf> = Vec::new();
-
-            if over.exists() {
-                for ow_entry in walkdir::WalkDir::new(over) {
-                    let ow_entry = ow_entry.map_err(|e| e.to_string())?;
-                    if !ow_entry.path().is_file() {
-                        continue;
-                    }
-                    candidates.push(ow_entry.path().to_path_buf());
+        let mut possible_sources: Vec<PathBuf> = Vec::new();
+        possible_sources.push(empty_file.clone());
+        if over.exists() {
+            for ow_entry in walkdir::WalkDir::new(over) {
+                if let Ok(entry) = ow_entry {
+                    if entry.path().is_file() { possible_sources.push(entry.path().to_path_buf()); }
                 }
             }
+        }
+        for game_file in &game_files {
+            let po_path = game_file.with_file_name(format!("{}.po", game_file.file_name().unwrap_or_default().to_string_lossy()));
+            if po_path.exists() { possible_sources.push(po_path); }
+            possible_sources.push(game_file.clone());
+        }
+
+        let mut unique_sources = Vec::new();
+        let mut seen_sources = std::collections::HashSet::new();
+        for src in possible_sources {
+            if seen_sources.insert(src.clone()) { unique_sources.push(src); }
+        }
+
+        for entry in &all_entries {
+            let file_name = entry.path().file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            if !file_name.ends_with(".xdelta") { continue; }
+            log(&format!("  Patching: {}", file_name));
+
+            let expected_stem = entry.path().file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+            let mut intended_dest_rel = PathBuf::from(&data_target);
 
             for game_file in &game_files {
-                let po_path = {
-                    let mut p = game_file.clone();
-                    p.set_file_name(format!(
-                        "{}.po",
-                        game_file.file_name().unwrap_or_default().to_string_lossy()
-                    ));
-                    p
-                };
-                if po_path.exists() {
-                    candidates.push(po_path);
+                if let Ok(rel) = game_file.strip_prefix(game_path) {
+                    if rel.file_name().unwrap_or_default().to_string_lossy().to_lowercase() == expected_stem {
+                        intended_dest_rel = rel.to_path_buf();
+                        break;
+                    }
                 }
-                candidates.push(game_file.clone());
             }
 
-            for source in &candidates {
-                let (dest, use_tmp) = if source.starts_with(over) {
-                    (source.clone(), true)
-                } else {
-                    let rel = if source
-                        .extension()
-                        .map(|e| e.to_string_lossy().to_lowercase())
-                        .unwrap_or_default()
-                        .ends_with("po")
-                    {
-                        let without_po = source.with_extension("");
-                        without_po
-                            .strip_prefix(game_path)
-                            .map(|r| r.to_path_buf())
-                            .unwrap_or_else(|_| without_po.file_name().unwrap().into())
-                    } else {
-                        source
-                            .strip_prefix(game_path)
-                            .map(|r| r.to_path_buf())
-                            .unwrap_or_else(|_| source.file_name().unwrap().into())
-                    };
-                    (over.join(rel), false)
-                };
+            let dest = over.join(&intended_dest_rel);
+            let tmp = over.join(format!("{}_patch_tmp", file_name));
+            let mut patched = false;
 
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
+            let mut smart_candidates = Vec::new();
+            smart_candidates.push(empty_file.clone());
+            if dest.exists() { smart_candidates.push(dest.clone()); }
+            
+            let game_dest = game_path.join(&intended_dest_rel);
+            let po_dest = game_dest.with_file_name(format!("{}.po", game_dest.file_name().unwrap_or_default().to_string_lossy()));
+            if po_dest.exists() { smart_candidates.push(po_dest); }
+            if game_dest.exists() { smart_candidates.push(game_dest.clone()); }
+            
+            let data_win_path = game_path.join(&data_target);
+            if data_win_path.exists() { smart_candidates.push(data_win_path); }
 
-                let tmp = dest.parent().unwrap().join(format!(
-                    "{}_patch_tmp",
-                    dest.file_name().unwrap().to_string_lossy()
-                ));
-                let actual_dest = if use_tmp { &tmp } else { &dest };
+            for src in &unique_sources { if !smart_candidates.contains(src) { smart_candidates.push(src.clone()); } }
 
+            for source in &smart_candidates {
                 let mut cmd = build_command(&xdelta);
-
                 #[cfg(windows)]
-                {
-                    cmd.creation_flags(
-                        0x08000000
-                        | 0x00000008
-                        | 0x00000200
-                    );
-                }
+                { cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200); }
 
-                let status = cmd
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdin(Stdio::null())
-                    .args(["-d", "-f", "-s"])
-                    .arg(source)
-                    .arg(entry.path())
-                    .arg(actual_dest)
-                    .status()
-                    .map_err(|e| e.to_string())?;
+                let status = cmd.stdout(Stdio::null()).stderr(Stdio::null()).stdin(Stdio::null())
+                    .args(["-d", "-f", "-s"]).arg(source).arg(entry.path()).arg(&tmp).status();
 
-                if status.success() {
-                    if use_tmp {
-                        fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
-                    }
-                    log(&format!(
-                        "    ✓ Patched -> {}",
-                        dest.strip_prefix(over).unwrap_or(&dest).display()
-                    ));
-                    patched = true;
-                    break;
-                } else {
-                    if tmp.exists() {
-                        let _ = fs::remove_file(&tmp);
+                if let Ok(st) = status {
+                    if st.success() {
+                        if let Some(p) = dest.parent() { let _ = fs::create_dir_all(p); }
+                        if dest.exists() { let _ = fs::remove_file(&dest); }
+                        if fs::rename(&tmp, &dest).is_ok() {
+                            log(&format!("    ✓ Patched -> {}", intended_dest_rel.display()));
+                            patched = true;
+                            break;
+                        }
                     }
                 }
+                if tmp.exists() { let _ = fs::remove_file(&tmp); }
             }
 
             if !patched {
                 let msg = format!("    ✗ No source found for: {}", file_name);
                 log(&msg);
+                if empty_file.exists() { let _ = fs::remove_file(&empty_file); }
                 return Err(msg);
             }
         }
+        if empty_file.exists() { let _ = fs::remove_file(&empty_file); }
     }
 
     let src = over.join(&data_target);
