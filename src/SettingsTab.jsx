@@ -20,7 +20,7 @@ function SettingsTab({ onSave, applyTheme }) {
   const [os, setOs] = useState(null);
 
   useEffect(() => {
-    const os = platform();
+    setOs(platform());
     invoke("get_settings")
       .then((data) => {
         setSettings(data);

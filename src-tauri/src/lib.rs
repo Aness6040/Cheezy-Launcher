@@ -138,7 +138,7 @@ fn get_settings() -> Result<Settings, String> {
         steam_api: true,
         gmloader_enabled: false,
         discord_rpc: true,
-        wine_mode: "wine".to_string(),
+        wine_mode: "proton_experimental".to_string(),
         wine_path: String::new(),
         wine_prefix: String::new(),
     };
@@ -158,10 +158,13 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
     }
     #[cfg(not(windows))]
     {
-        let (runner, prefix) = resolve_wine_runner(settings);
-        let mut cmd = Command::new(runner);
-        if let Some(p) = prefix {
-            cmd.env("WINEPREFIX", p);
+        let (runner, extra_args, env_vars) = resolve_wine_runner(settings);
+        let mut cmd = Command::new(&runner);
+        for arg in &extra_args {
+            cmd.arg(arg);
+        }
+        for (k, v) in &env_vars {
+            cmd.env(k, v);
         }
         cmd.arg(exe_path);
         cmd
@@ -169,68 +172,112 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
 }
 
 #[cfg(not(windows))]
-fn resolve_wine_runner(settings: &Settings) -> (String, Option<String>) {
-    let prefix = if settings.wine_prefix.is_empty() {
-        None
-    } else {
-        Some(settings.wine_prefix.clone())
-    };
+fn resolve_wine_runner(settings: &Settings) -> (String, Vec<String>, std::collections::HashMap<String, String>) {
+    let mut env_vars = std::collections::HashMap::new();
+    
+    // WINEPREFIX custom
+    if !settings.wine_prefix.is_empty() {
+        env_vars.insert("WINEPREFIX".into(), settings.wine_prefix.clone());
+    }
 
     match settings.wine_mode.as_str() {
-        "proton" => {
-            // Cherche Proton stable via Steam
-            if let Some(path) = find_proton_path(false) {
-                return (path, prefix);
+        "proton" | "proton_experimental" => {
+            let experimental = settings.wine_mode == "proton_experimental";
+            if let Some(proton_path) = find_proton_path(experimental) {
+                // Proton a besoin de ces deux variables pour fonctionner
+                let compat_data = if !settings.wine_prefix.is_empty() {
+                    settings.wine_prefix.clone()
+                } else {
+                    // Fallback : dossier compatdata de Steam pour Pizza Tower
+                    steamlocate::SteamDir::locate()
+                        .ok()
+                        .and_then(|s| s.find_app(2231450).ok().flatten())
+                        .map(|(_, lib)| {
+                            lib.path()
+                                .join("steamapps")
+                                .join("compatdata")
+                                .join("2231450")
+                                .to_string_lossy()
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| {
+                            std::env::var("HOME").unwrap_or_default()
+                                + "/.steam/steam/steamapps/compatdata/2231450"
+                        })
+                };
+
+                let client_path = steamlocate::SteamDir::locate()
+                    .ok()
+                    .map(|s| s.path().to_string_lossy().to_string())
+                    .unwrap_or_else(|| std::env::var("HOME").unwrap_or_default() + "/.steam/steam");
+
+                env_vars.insert("STEAM_COMPAT_DATA_PATH".into(), compat_data);
+                env_vars.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".into(), client_path);
+
+                // proton s'appelle : python3 /path/to/proton run <exe>
+                // ou directement /path/to/proton run <exe> s'il est exécutable
+                return ("python3".into(), vec![proton_path, "run".into()], env_vars);
             }
-            ("wine".to_string(), prefix)
+            // fallback wine
+            ("wine".into(), vec![], env_vars)
         }
-        "proton_experimental" => {
-            if let Some(path) = find_proton_path(true) {
-                return (path, prefix);
-            }
-            ("wine".to_string(), prefix)
+        "custom" if !settings.wine_path.is_empty() => {
+            (settings.wine_path.clone(), vec![], env_vars)
         }
-        "custom" if !settings.wine_path.is_empty() => (settings.wine_path.clone(), prefix),
-        _ => ("wine".to_string(), prefix),
+        _ => ("wine".into(), vec![], env_vars),
     }
 }
 
 #[cfg(not(windows))]
 fn find_proton_path(experimental: bool) -> Option<String> {
     let steam_dir = steamlocate::SteamDir::locate().ok()?;
-    // App IDs : Proton stable = 1245040, Proton Experimental = 1493710
-    let app_id = if experimental { 1493710 } else { 1245040 };
-    let (_, lib) = steam_dir.find_app(app_id).ok()??;
-    let proton = lib
-        .path()
-        .join("steamapps")
-        .join("common")
-        .join(if experimental {
-            "Proton - Experimental"
-        } else {
-            "Proton 9.0 (Beta)"
-        })
-        .join("proton");
-    if proton.exists() {
-        Some(proton.to_string_lossy().to_string())
-    } else {
-        // fallback : chercher n'importe quel dossier Proton dans steamapps/common
+    let app_id = if experimental { 1493710u32 } else { 1245040u32 };
+    
+    if let Ok(Some((_, lib))) = steam_dir.find_app(app_id) {
         let common = lib.path().join("steamapps").join("common");
-        fs::read_dir(&common)
-            .ok()?
-            .filter_map(|e| e.ok())
-            .find(|e| {
-                let name = e.file_name().to_string_lossy().to_lowercase();
-                if experimental {
+        // Cherche n'importe quel dossier Proton dans common
+        if let Ok(entries) = fs::read_dir(&common) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                let is_match = if experimental {
                     name.contains("proton") && name.contains("experimental")
                 } else {
                     name.contains("proton") && !name.contains("experimental")
+                };
+                if is_match {
+                    let proton_bin = entry.path().join("proton");
+                    if proton_bin.exists() {
+                        return Some(proton_bin.to_string_lossy().to_string());
+                    }
                 }
-            })
-            .map(|e| e.path().join("proton").to_string_lossy().to_string())
+            }
+        }
     }
-}
 
+    // Fallback : cherche dans toutes les libs Steam
+    let steam_dir = steamlocate::SteamDir::locate().ok()?;
+    for lib in steam_dir.libraries().ok()?.filter_map(|l| l.ok()) {
+        let common = lib.path().join("steamapps").join("common");
+        if let Ok(entries) = fs::read_dir(&common) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                let is_match = if experimental {
+                    name.contains("proton") && name.contains("experimental")
+                } else {
+                    name.contains("proton") && !name.contains("experimental")
+                };
+                if is_match {
+                    let proton_bin = entry.path().join("proton");
+                    if proton_bin.exists() {
+                        return Some(proton_bin.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 fn locate_pizza_tower() -> Option<String> {
     steamlocate::SteamDir::locate()
         .ok()
