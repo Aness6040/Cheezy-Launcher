@@ -244,11 +244,10 @@ function App() {
       .forEach((el) => el.remove());
     if (!theme) theme = "light";
     document.documentElement.setAttribute("data-theme", theme);
-    
+
     try {
       await getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
     } catch (e) {}
-
     try {
       const exeDir = await invoke("get_main_dir", { folderName: "" });
       let css = await invoke("read_item", {
@@ -379,11 +378,11 @@ function App() {
 
       addLog(`Downloading ${file._sFile}...`);
 
-      setDownloadProgress({ 
-        file_name: file._sFile, 
-        percent: 0, 
-        downloaded_mb: 0, 
-        total_mb: 0 
+      setDownloadProgress({
+        file_name: file._sFile,
+        percent: 0,
+        downloaded_mb: 0,
+        total_mb: 0,
       });
 
       await invoke("download_and_install_mod", {
@@ -500,12 +499,7 @@ function App() {
             <ManageGMLoader
               modsDir={modsDir}
               addLog={addLog}
-              onDropInstall={(p) =>
-                handleDropInstall(
-                  p,
-                  getGmlDir(modsDir),
-                )
-              }
+              onDropInstall={(p) => handleDropInstall(p, getGmlDir(modsDir))}
             />
           )}
           {activeTab === "tab3" && (
@@ -549,9 +543,18 @@ function App() {
       {downloadProgress && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-base-100 rounded-box shadow-xl p-5 w-96 flex flex-col gap-3 text-center">
-            <h3 className="font-bold text-sm truncate">Downloading {downloadProgress.file_name}</h3>
-            <progress className="progress progress-primary w-full" value={downloadProgress.percent} max="100"></progress>
-            <span className="text-xs font-mono">{downloadProgress.percent}% ({downloadProgress.downloaded_mb} MB / {downloadProgress.total_mb} MB)</span>
+            <h3 className="font-bold text-sm truncate">
+              Downloading {downloadProgress.file_name}
+            </h3>
+            <progress
+              className="progress progress-primary w-full"
+              value={downloadProgress.percent}
+              max="100"
+            ></progress>
+            <span className="text-xs font-mono">
+              {downloadProgress.percent}% ({downloadProgress.downloaded_mb} MB /{" "}
+              {downloadProgress.total_mb} MB)
+            </span>
           </div>
         </div>
       )}

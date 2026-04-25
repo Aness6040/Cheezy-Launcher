@@ -459,7 +459,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
             <a
               onClick={() => {
                 invoke("open_item", {
-                  path: contextMenu.modPath
+                  path: contextMenu.modPath,
                 });
                 setContextMenu(null);
               }}

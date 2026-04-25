@@ -21,7 +21,6 @@ function SettingsTab({ onSave, applyTheme }) {
     invoke("get_settings")
       .then((data) => {
         setSettings(data);
-        applyTheme(data.theme);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
