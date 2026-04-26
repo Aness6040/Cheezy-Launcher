@@ -8,6 +8,7 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as Babel from "@babel/standalone";
 import { joinPath, getGmlDir } from "./pathUtils";
+import ReactMarkdown from "react-markdown";
 import { check } from "@tauri-apps/plugin-updater";
 
 import {
@@ -501,7 +502,9 @@ function App() {
 
             <div className="bg-base-200 p-3 rounded-box text-xs font-mono max-h-40 overflow-auto">
               <div className="font-bold mb-2">Info:</div>
-              {updateInfo?.manifest?.body || "No changelog provided"}
+              <ReactMarkdown>
+                {updateInfo?.manifest?.body || "No changelog provided"}
+              </ReactMarkdown>
             </div>
 
             <div className="flex gap-2 justify-end mt-2">
