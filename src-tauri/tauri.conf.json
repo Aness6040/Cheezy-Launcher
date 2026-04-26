@@ -25,7 +25,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQUUyQUREMTgwNTM0OTcKUldTWE5BVVkzU3F1RW1CRlhKSTVyNGxlM3NaMVdHUVhYVkNjMDBYTStFWWtyRUhrOUc4bTJKN1IK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxMzYxODQyNDMzOEJGOEQKUldTTnZ6aERRaGcyOFQ2elFyTnpGWm5iZnl5dUR1NnY3cTE1WWcyYnpsYzNKS0o1QytPU0w0b1MK",
       "endpoints": [
         "https://github.com/Aness6040/Cheezy-Launcher/releases/latest/download/latest.json"
       ]
