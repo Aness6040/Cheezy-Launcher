@@ -172,9 +172,15 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
 }
 
 #[cfg(not(windows))]
-fn resolve_wine_runner(settings: &Settings) -> (String, Vec<String>, std::collections::HashMap<String, String>) {
+fn resolve_wine_runner(
+    settings: &Settings,
+) -> (
+    String,
+    Vec<String>,
+    std::collections::HashMap<String, String>,
+) {
     let mut env_vars = std::collections::HashMap::new();
-    
+
     // WINEPREFIX custom
     if !settings.wine_prefix.is_empty() {
         env_vars.insert("WINEPREFIX".into(), settings.wine_prefix.clone());
@@ -232,7 +238,7 @@ fn resolve_wine_runner(settings: &Settings) -> (String, Vec<String>, std::collec
 fn find_proton_path(experimental: bool) -> Option<String> {
     let steam_dir = steamlocate::SteamDir::locate().ok()?;
     let app_id = if experimental { 1493710u32 } else { 1245040u32 };
-    
+
     if let Ok(Some((_, lib))) = steam_dir.find_app(app_id) {
         let common = lib.path().join("steamapps").join("common");
         // Cherche n'importe quel dossier Proton dans common
@@ -1817,6 +1823,7 @@ pub fn run() {
     let sys_state: SysState = Arc::new(Mutex::new(System::new()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_drpc::init())
         .plugin(tauri_plugin_deep_link::init())

@@ -8,6 +8,7 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as Babel from "@babel/standalone";
 import { joinPath, getGmlDir } from "./pathUtils";
+import { check } from "@tauri-apps/plugin-updater";
 
 import {
   start,
@@ -62,6 +63,26 @@ function LogPanel({ logs, onClear }) {
 }
 
 function App() {
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  useEffect(() => {
+    const checkUpdate = async () => {
+      try {
+        const update = await check();
+
+        if (update?.available) {
+          setUpdateInfo(update);
+          setShowUpdateModal(true);
+        }
+      } catch (e) {
+        console.error("Update check failed:", e);
+      }
+    };
+
+    checkUpdate();
+  }, []);
+
   const sanitizeName = (name) => name.replace(/[<>:"/\\|?*]/g, "_").trim();
   const [activeTab, setActiveTab] = useState("tab1");
   const [modsDir, setModsDir] = useState(null);
@@ -242,21 +263,42 @@ function App() {
     document
       .querySelectorAll("[data-theme-custom]")
       .forEach((el) => el.remove());
-    if (!theme) theme = "light";
-    document.documentElement.setAttribute("data-theme", theme);
 
-    try {
-      await getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
-    } catch (e) {}
+    if (!theme) theme = "light";
+
+    document.documentElement.setAttribute("data-theme", theme);
+    const getColorSchemeFromStyle = (styleEl) => {
+      const sheet = styleEl.sheet;
+
+      if (!sheet) return null;
+
+      for (const rule of sheet.cssRules) {
+        if (rule.selectorText === ":root") {
+          return rule.style.getPropertyValue("color-scheme").trim();
+        }
+      }
+
+      return null;
+    };
+    let th = theme === "dark" ? "dark" : "light";
     try {
       const exeDir = await invoke("get_main_dir", { folderName: "" });
+
       let css = await invoke("read_item", {
         path: joinPath(exeDir, "themes", `${theme}.css`),
       });
+
       const el = document.createElement("style");
       el.setAttribute("data-theme-custom", theme);
       el.textContent = css;
+
       document.head.appendChild(el);
+
+      const scheme = getColorSchemeFromStyle(el);
+      th = scheme === null ? "light" : scheme;
+    } catch (e) {}
+    try {
+      await getCurrentWindow().setTheme(th);
     } catch (e) {}
   };
 
@@ -448,6 +490,42 @@ function App() {
 
   return (
     <div>
+      {showUpdateModal && updateInfo && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70">
+          <div className="bg-base-100 rounded-box shadow-xl p-6 w-[500px] flex flex-col gap-4">
+            <h2 className="text-xl font-bold text-center">Update Available</h2>
+
+            <p className="text-sm opacity-80">
+              A new version of Cheezy Launcher is available.
+            </p>
+
+            <div className="bg-base-200 p-3 rounded-box text-xs font-mono max-h-40 overflow-auto">
+              <div className="font-bold mb-2">Info:</div>
+              {updateInfo?.manifest?.body || "No changelog provided"}
+            </div>
+
+            <div className="flex gap-2 justify-end mt-2">
+              <button
+                className="btn btn-error btn-sm"
+                onClick={() => {
+                  setShowUpdateModal(false);
+                }}
+              >
+                Later
+              </button>
+
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={async () => {
+                  await updateInfo.downloadAndInstall();
+                }}
+              >
+                Update now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div role="tablist" className="tabs tabs-border flex justify-between">
         <div className="flex gap-1 tabs-border">
           {Ftabs.map((tab) => (

@@ -41,3 +41,6 @@ tauri-plugin-os = "2"
 [build]
 incremental = true
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
