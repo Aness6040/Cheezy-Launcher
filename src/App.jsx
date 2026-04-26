@@ -74,6 +74,7 @@ function App() {
 
         if (update?.available) {
           setUpdateInfo(update);
+          console.log(updateInfo)
           setShowUpdateModal(true);
         }
       } catch (e) {
@@ -500,10 +501,10 @@ function App() {
               A new version of Cheezy Launcher is available.
             </p>
 
-            <div className="bg-base-200 p-3 rounded-box text-xs font-mono max-h-40 overflow-auto">
+            <div className="bg-base-200 p-3 rounded-box font-mono max-h-40 overflow-auto">
               <div className="font-bold mb-2">Info:</div>
               <ReactMarkdown>
-                {updateInfo?.manifest?.body || "No changelog provided"}
+                {updateInfo?.body || "No changelog provided"}
               </ReactMarkdown>
             </div>
 
