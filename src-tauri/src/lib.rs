@@ -158,16 +158,33 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
     }
     #[cfg(not(windows))]
     {
-        let (runner, extra_args, env_vars) = resolve_wine_runner(settings);
-        let mut cmd = Command::new(&runner);
-        for arg in &extra_args {
-            cmd.arg(arg);
+        let is_windows_file = exe_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                matches!(
+                    ext.to_lowercase().as_str(),
+                    "exe" | "msi" | "bat" | "cmd"
+                )
+            })
+            .unwrap_or(false);
+
+        if is_windows_file {
+            let (runner, extra_args, env_vars) = resolve_wine_runner(settings);
+            let mut cmd = Command::new(&runner);
+
+            for arg in &extra_args {
+                cmd.arg(arg);
+            }
+            for (k, v) in &env_vars {
+                cmd.env(k, v);
+            }
+
+            cmd.arg(exe_path);
+            cmd
+        } else {
+            Command::new(exe_path)
         }
-        for (k, v) in &env_vars {
-            cmd.env(k, v);
-        }
-        cmd.arg(exe_path);
-        cmd
     }
 }
 

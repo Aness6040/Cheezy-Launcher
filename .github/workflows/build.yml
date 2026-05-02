@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -45,9 +47,49 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Get commit list
+      - name: Build Tauri App
+        run: pnpm tauri build
+
+      - name: Zip Windows executable
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path src-tauri/target/release -Filter *.exe -Recurse | Select-Object -First 1
+          Compress-Archive -Path $exe.FullName -DestinationPath "Cheezy.Launcher_${{ github.ref_name }}_windows.zip"
+
+      - name: Tar.gz Linux executable
+        if: matrix.name == 'linux'
+        run: |
+          EXE=$(find src-tauri/target/release -type f -executable | head -n 1)
+          tar -czvf Cheezy.Launcher_${{ github.ref_name }}_linux.tar.gz -C "$(dirname "$EXE")" "$(basename "$EXE")"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            src-tauri/target/release/bundle/**
+            *.zip
+            *.tar.gz
+
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate changelog
         id: commits
-        shell: bash
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
@@ -61,38 +103,21 @@ jobs:
           echo "$LOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Read changelog
-        id: changelog
-        shell: bash
-        run: |
-          if [ -f CHANGELOG.md ]; then
-            echo "body<<EOF" >> $GITHUB_OUTPUT
-            cat CHANGELOG.md >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "body=No changelog provided." >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build Tauri App + Create Release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Cheezy Launcher ${{ github.ref_name }}"
-          releaseBody: |
+          tag_name: ${{ github.ref_name }}
+          name: "Cheezy Launcher ${{ github.ref_name }}"
+          body: |
             ## Cheezy Launcher ${{ github.ref_name }}
-
-            ${{ steps.changelog.outputs.body }}
-
-            --- 
 
             ### Commits:
             ${{ steps.commits.outputs.body }}
 
             ### Info:
-            - Commit: ${{ github.sha }}
+            - Tag: ${{ github.ref_name }}
 
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          files: |
+            **/*.zip
+            **/*.tar.gz
+            **/bundle/**/*
