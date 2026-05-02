@@ -189,9 +189,26 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
             cmd.arg(exe_path);
             cmd
         } else {
+            let _ = ensure_executable(exe_path);
             Command::new(exe_path)
         }
     }
+}
+
+#[cfg(not(windows))]
+fn ensure_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    let mut perms = metadata.permissions();
+    let mode = perms.mode();
+
+    if mode & 0o111 == 0 {
+        perms.set_mode(mode | 0o755);
+        fs::set_permissions(path, perms).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -256,6 +273,8 @@ fn resolve_wine_runner(
         _ => ("wine".into(), vec![], env_vars),
     }
 }
+
+
 
 #[cfg(not(windows))]
 fn find_proton_path(experimental: bool) -> Option<String> {
@@ -1271,9 +1290,29 @@ fn mount_vfs(
 #[tauri::command]
 fn unmount_vfs(vfs_root: String) -> Result<(), String> {
     let root = Path::new(&vfs_root);
+
     if root.exists() {
+        let log_src = root.join("GMLoader.log");
+
+        if log_src.exists() {
+            let exe_dir = exe_dir()?;
+            let log_dst = exe_dir.join("GMLoader.log");
+
+            match fs::rename(&log_src, &log_dst) {
+                Ok(_) => {
+                    println!("GMLoader.log moved to exe directory");
+                }
+                Err(_) => {
+                    fs::copy(&log_src, &log_dst)
+                        .map_err(|e| e.to_string())?;
+                    println!("GMLoader.log copied to exe directory");
+                }
+            }
+        }
+
         fs::remove_dir_all(root).map_err(|e| e.to_string())?;
     }
+
     Ok(())
 }
 
