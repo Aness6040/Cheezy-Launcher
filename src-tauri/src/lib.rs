@@ -128,6 +128,36 @@ fn get_settings() -> Result<Settings, String> {
     let game_dir = locate_pizza_tower().unwrap_or_default();
     let game_data_dir = locate_game_data_dir().unwrap_or_default();
 
+    fn default_gmloader_auto_restart() -> bool {
+        #[cfg(windows)]
+        {
+            false
+        }
+        #[cfg(not(windows))]
+        {
+            true
+        }
+    }
+
+    fn default_wine_mode() -> String {
+        #[cfg(windows)]
+        {
+            return String::new();
+        }
+
+        #[cfg(not(windows))]
+        {
+        if find_proton_path(true).is_some() {
+            return "proton_experimental".into();
+        }
+
+        if find_proton_path(false).is_some() {
+            return "proton".into();
+        }
+        "wine".into()
+        }
+    }
+
     let default = Settings {
         theme: "light".to_string(),
         launch_args: Vec::new(),
@@ -139,12 +169,9 @@ fn get_settings() -> Result<Settings, String> {
         prepatch: String::new(),
         steam_api: true,
         gmloader_enabled: false,
-        #[cfg(windows)]
-        gmloader_auto_restart: false,
-        #[cfg(not(windows))]
-        gmloader_auto_restart: true,
+        gmloader_auto_restart: default_gmloader_auto_restart(),
         discord_rpc: true,
-        wine_mode: "proton_experimental".to_string(),
+        wine_mode: default_wine_mode(),
         wine_path: String::new(),
         wine_prefix: String::new(),
     };
@@ -260,9 +287,11 @@ fn resolve_wine_runner(
                 env_vars.insert("STEAM_COMPAT_DATA_PATH".into(), compat_data);
                 env_vars.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".into(), client_path);
 
-                // proton s'appelle : python3 /path/to/proton run <exe>
-                // ou directement /path/to/proton run <exe> s'il est exécutable
-                return ("python3".into(), vec![proton_path, "run".into()], env_vars);
+                if std::path::Path::new(&proton_path).is_file() {
+                    return (proton_path, vec!["run".into()], env_vars);
+                } else {
+                    return ("python3".into(), vec![proton_path, "run".into()], env_vars);
+                }
             }
             // fallback wine
             ("wine".into(), vec![], env_vars)
