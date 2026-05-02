@@ -23,3 +23,9 @@
   --color-accent: rgb(170, 85, 65);
   --color-accent-content: rgb(102, 51, 36);
 }
+
+.tooltip.tooltip-small::before {
+  font-size: 0.75rem;
+  max-width: 14rem;
+  padding: 0.4rem 0.6rem;
+}

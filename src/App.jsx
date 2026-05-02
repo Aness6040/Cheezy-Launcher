@@ -74,7 +74,7 @@ function App() {
 
         if (update?.available) {
           setUpdateInfo(update);
-          console.log(updateInfo)
+          console.log(updateInfo);
           setShowUpdateModal(true);
         }
       } catch (e) {

@@ -119,6 +119,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
   const [contextMenu, setContextMenu] = useState(null);
 
   const [isDragOver, setIsDragOver] = useState(false);
+  const [gmloaderInstalled, setGmloaderInstalled] = useState(false);
 
   useEffect(() => {
     const unlistenEnter = listen("tauri://drag-enter", () =>
@@ -141,6 +142,12 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
       unlistenDrop.then((f) => f());
     };
   }, [modsDir]);
+
+  useEffect(() => {
+    invoke("gmloader_installed")
+      .then(setGmloaderInstalled)
+      .catch(console.error);
+  }, []);
 
   const fetchMods = () => {
     if (!modsDir) return;
@@ -221,10 +228,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
             effectiveSettings.gmloader_enabled ?? gmloaderEnabled,
         });
 
-        const GMLOADER_EXE =
-          "GMLoader.exe"; /* navigator.platform.toLowerCase().includes("win")
-          ? "GMLoader.exe"
-          : "GMLoader.bin"; */
+        const GMLOADER_EXE = "GMLoader.exe";
         if (gmloaderEnabled) {
           const unlistenOutput = await listen("process-output", (event) => {
             if (
@@ -320,9 +324,24 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
   const useMods = selectedMod || gmloaderEnabled;
 
   useEffect(() => {
-    invoke("get_settings").then((s) =>
-      setGmloaderEnabled(s.gmloader_enabled || false),
-    );
+    const load = async () => {
+      try {
+        const installed = await invoke("gmloader_installed");
+        setGmloaderInstalled(installed);
+
+        const settings = await invoke("get_settings");
+
+        setGmloaderEnabled(
+          installed ? (settings.gmloader_enabled ?? false) : false,
+        );
+      } catch (e) {
+        console.error(e);
+        setGmloaderInstalled(false);
+        setGmloaderEnabled(false);
+      }
+    };
+
+    load();
   }, []);
 
   const handleToggleGML = async (e) => {
@@ -337,7 +356,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="mb-3 flex gap-2 flex-shrink-0">
         <input
           type="text"
@@ -401,19 +420,30 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
             </ul>
           </div>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label
+          className={`flex items-center gap-2 cursor-pointer ${
+            !gmloaderInstalled ? "tooltip tooltip-right tooltip-error" : ""
+          }`}
+          {...(!gmloaderInstalled
+            ? {
+                "data-tip":
+                  "GMLoader is not installed, go to settings to install it.",
+              }
+            : {})}
+        >
           <span className="text-sm">GMLoader</span>
           <input
             type="checkbox"
             className="toggle toggle-primary toggle-sm"
             checked={gmloaderEnabled}
+            disabled={!gmloaderInstalled}
             onChange={handleToggleGML}
           />
         </label>
       </div>
 
       <div
-        className={`flex flex-col h-full transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-box" : ""}`}
+        className={`flex-1 overflow-auto h-full transition-colors ${isDragOver ? "outline-dashed outline-2 outline-primary bg-primary/5 rounded-box" : ""}`}
       >
         {isDragOver && (
           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">

@@ -107,6 +107,14 @@ function ManageGMLoader({ modsDir, addLog, onDropInstall }) {
 
   const [isDragOver, setIsDragOver] = useState(false);
 
+  const [gmloaderInstalled, setGmloaderInstalled] = useState(false);
+
+  useEffect(() => {
+    invoke("gmloader_installed")
+      .then(setGmloaderInstalled)
+      .catch(() => setGmloaderInstalled(false));
+  }, []);
+
   useEffect(() => {
     const unlistenEnter = listen("tauri://drag-enter", () =>
       setIsDragOver(true),
@@ -324,6 +332,11 @@ function ManageGMLoader({ modsDir, addLog, onDropInstall }) {
       <div className="flex items-center justify-between flex-shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold">GMLoader Mods</p>
+          {!gmloaderInstalled && (
+            <span className="badge badge-error badge-sm">
+              GMLoader not installed
+            </span>
+          )}
           {selected.length > 0 && (
             <span className="badge badge-primary badge-sm">
               {selected.length} selected

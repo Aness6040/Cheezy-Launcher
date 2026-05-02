@@ -42,6 +42,8 @@ struct Settings {
     #[serde(default)]
     gmloader_enabled: bool,
     #[serde(default)]
+    gmloader_auto_restart: bool,
+    #[serde(default)]
     discord_rpc: bool,
     #[serde(default)]
     wine_mode: String, // "wine", "proton", "proton_experimental", "custom"
@@ -137,6 +139,10 @@ fn get_settings() -> Result<Settings, String> {
         prepatch: String::new(),
         steam_api: true,
         gmloader_enabled: false,
+        #[cfg(windows)]
+        gmloader_auto_restart: false,
+        #[cfg(not(windows))]
+        gmloader_auto_restart: true,
         discord_rpc: true,
         wine_mode: "proton_experimental".to_string(),
         wine_path: String::new(),
@@ -1097,6 +1103,7 @@ fn mount_vfs(
     steam_api: bool,
     gmloader_enabled: bool,
 ) -> Result<(), String> {
+    let settings = get_settings()?;
     let game = Path::new(&game_dir);
     let over = Path::new(&overwrite_path);
     let root = Path::new(&vfs_root);
@@ -1211,6 +1218,7 @@ fn mount_vfs(
                     if data_win_path.exists() {
                         let bytes = fs::read(&data_win_path).map_err(|e| e.to_string())?;
                         let hash = xxhash_rust::xxh3::xxh3_64(&bytes);
+                        let auto_restart = settings.gmloader_auto_restart;
                         content = content
                             .lines()
                             .map(|line| {
@@ -1219,7 +1227,7 @@ fn mount_vfs(
                                 } else if line.starts_with("CheckHash=") {
                                     "CheckHash=false".to_string()
                                 } else if line.starts_with("AutoGameStart=") {
-                                    "AutoGameStart=false".to_string()
+                                    format!("AutoGameStart={}", if auto_restart { "true" } else { "false" })
                                 } else if line.starts_with("GameData=") {
                                     "GameData=data.win".to_string()
                                 } else {
@@ -1835,6 +1843,134 @@ fn read_plugin_script(plugin_id: String) -> Result<String, String> {
     Err("No entry file found".into())
 }
 
+
+#[tauri::command]
+async fn download_gmloader(
+    file_name: String,
+    download_url: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use std::io::Cursor;
+
+    let dest_dir = exe_dir()?.join("deps").join("GMLoader");
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut response = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut file_bytes = Vec::new();
+    let mut downloaded: u64 = 0;
+    let mut last_emit: u8 = 0;
+    let total_mb = total_size as f64 / 1_048_576.0;
+
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        file_bytes.extend_from_slice(&chunk);
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let percent = (downloaded as f64 / total_size as f64 * 100.0) as u8;
+            if percent >= last_emit + 2 || percent == 100 {
+                last_emit = percent;
+                let downloaded_mb = downloaded as f64 / 1_048_576.0;
+                let payload = format!(
+                    r#"{{"file_name": "{}", "percent": {}, "downloaded_mb": {:.2}, "total_mb": {:.2}}}"#,
+                    file_name, percent, downloaded_mb, total_mb
+                );
+                let _ = app_handle.emit("gmloader-download-progress", payload);
+            }
+        }
+    }
+
+    let archive_type = detect_archive_type(&file_bytes);
+
+    if archive_type == "zip" {
+        let cursor = Cursor::new(file_bytes);
+        let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let out_path = dest_dir.join(file.name());
+            if file.is_dir() {
+                fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                let mut out = fs::File::create(&out_path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+            }
+        }
+    } else if archive_type == "7z" {
+        let tmp_path = dest_dir.join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        sevenz_rust::decompress_file(&tmp_path, &dest_dir).map_err(|e| e.to_string())?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else if archive_type == "rar" {
+        let tmp_path = dest_dir.join(&file_name);
+        fs::write(&tmp_path, &file_bytes).map_err(|e| e.to_string())?;
+        extract_rar(&tmp_path, &dest_dir)?;
+        fs::remove_file(&tmp_path).map_err(|e| e.to_string())?;
+    } else {
+        // Fichier brut (ex: .exe directement)
+        let out_path = dest_dir.join(&file_name);
+        fs::write(&out_path, &file_bytes).map_err(|e| e.to_string())?;
+    }
+
+    // Aplatir si l'archive contenait un seul sous-dossier
+    let entries: Vec<_> = fs::read_dir(&dest_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .collect();
+    let files: Vec<_> = entries.iter().filter(|e| e.path().is_file()).collect();
+    let dirs: Vec<_> = entries.iter().filter(|e| e.path().is_dir()).collect();
+
+    if files.is_empty() && dirs.len() == 1 {
+        let base_dir = dirs[0].path();
+        for entry in walkdir::WalkDir::new(&base_dir) {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let rel = entry
+                .path()
+                .strip_prefix(&base_dir)
+                .map_err(|e| e.to_string())?;
+            let dest = dest_dir.join(rel);
+            if entry.path().is_dir() {
+                fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::rename(entry.path(), &dest).map_err(|e| e.to_string())?;
+            }
+        }
+        fs::remove_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn gmloader_installed() -> Result<bool, String> {
+    let dir = exe_dir()?.join("deps").join("GMLoader");
+    if !dir.exists() {
+        return Ok(false);
+    }
+    // Considéré installé si le dossier contient au moins un fichier
+    let has_file = fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .any(|e| e.path().is_file());
+    Ok(has_file)
+}
+
 pub fn run() {
     let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
     let sys_state: SysState = Arc::new(Mutex::new(System::new()));
@@ -1893,6 +2029,9 @@ pub fn run() {
             list_plugins,
             set_plugin_enabled,
             read_plugin_script,
+            // gmloader
+            download_gmloader,
+            gmloader_installed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
