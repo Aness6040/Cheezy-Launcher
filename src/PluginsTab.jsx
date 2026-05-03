@@ -91,8 +91,7 @@ export default function PluginsTab({ onPluginsChange }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* 🔝 HEADER FIXE */}
-      <div className="flex flex-col gap-2 pb-3 border-b border-base-300 bg-base-100">
+      <div className="flex flex-col gap-2 pb-3">
         <input
           className="input input-bordered input-sm w-full"
           placeholder="Search plugins..."
@@ -102,7 +101,7 @@ export default function PluginsTab({ onPluginsChange }) {
 
         <div className="flex justify-between items-center">
           <p className="text-xs text-base-content/50">
-            Place plugins in <code className="font-mono">plugins/</code>
+            Place plugins in <code className="font-mono">/plugins</code> folder
           </p>
 
           <button className="btn btn-sm btn-outline" onClick={openFolder}>
@@ -111,7 +110,6 @@ export default function PluginsTab({ onPluginsChange }) {
         </div>
       </div>
 
-      {/* 📜 SCROLL AREA UNIQUEMENT ICI */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 pt-3">
         {filteredPlugins.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 h-40 text-base-content/40 text-lg rounded-box border border-dashed border-base-content/20">
