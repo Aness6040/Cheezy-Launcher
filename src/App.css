@@ -1,6 +1,33 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* TAILWIND CSS BLOAT TO WORK WITH PLUGINS */
+@source inline("{p,m,px,py,pt,pb,pl,pr,mx,my,mt,mb,ml,mr}-{0,0.5,1,1.5,2,2.5,3,3.5,4,5,6,7,8,9,10,11,12,14,16,20,24,28,32,36,40,44,48,52,56,60,64,72,80,96,auto,full,screen}");
+@source inline("{w,h,min-w,max-w,min-h,max-h}-{0,1,2,3,4,5,6,8,10,12,16,20,24,28,32,36,40,44,48,52,56,60,64,72,80,96,auto,full,screen,min,max,fit}");
+@source inline("{text,bg,border,ring,fill,stroke}-{primary,secondary,accent,neutral,base-100,base-200,base-300,base-content,info,success,warning,error,ghost,link}");
+@source inline("{text,bg,border}-{primary,secondary,accent,info,success,warning,error}/{10,20,30,40,50,60,70,80,90}");
+@source inline("text-{xs,sm,base,lg,xl,2xl,3xl,4xl,5xl,6xl,7xl,8xl,9xl}");
+@source inline("font-{thin,extralight,light,normal,medium,semibold,bold,extrabold,black}");
+@source inline("{flex,grid,hidden,block,inline,inline-block,contents}");
+@source inline("{flex,grid}-{row,col,wrap,nowrap}");
+@source inline("{items,justify,content,self}-{start,end,center,between,around,evenly,stretch}");
+@source inline("{grid-cols,grid-rows,col-span,row-span}-{1,2,3,4,5,6,7,8,9,10,11,12,24}");
+@source inline("rounded{,-sm,-md,-lg,-xl,-2xl,-3xl,-full}");
+@source inline("border{,-0,-2,-4,-8}");
+@source inline("{opacity,scale}-{0,5,10,20,25,30,40,50,60,70,75,80,90,95,100}");
+@source inline("shadow{,-sm,-md,-lg,-xl,-2xl,-inner,-none}");
+@source inline("{relative,absolute,fixed,sticky}");
+@source inline("{inset,top,right,bottom,left}-{0,auto,full}");
+@source inline("z-{0,10,20,30,40,50,auto,100,200,300,400,500}");
+@source inline("cursor-{pointer,default,not-allowed,wait,text,grab,move}");
+@source inline("transition{,-all,-colors,-opacity,-shadow,-transform}");
+@source inline("duration-{75,100,150,200,300,500,700,1000,1500,2000}");
+@source inline("{hover,focus,active,disabled,checked}:{bg,text,border,opacity,scale}-{0,50,75,100}");
+@source inline("{truncate,whitespace-nowrap,whitespace-pre-wrap,break-words,break-all}");
+@source inline("{btn,alert,badge,input,textarea,select,card,navbar,dropdown,menu,modal,toast,tooltip,table,progress,radial-progress,avatar,kbd,chat,timeline,stats,breadcrumbs,hero,footer}");
+@source inline("{btn,alert,badge,input,textarea,select,card,navbar,dropdown,menu,modal,toast,tooltip,table}-{primary,secondary,accent,info,success,warning,error,ghost,link,outline}");
+@source inline("btn-{xs,sm,md,lg}");
+
 @plugin "daisyui/theme" {
   name: "light";
 
