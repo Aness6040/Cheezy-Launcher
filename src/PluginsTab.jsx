@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,6 +7,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 export default function PluginsTab({ onPluginsChange }) {
   const [plugins, setPlugins] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   const reload = async () => {
     setLoading(true);
@@ -32,6 +33,7 @@ export default function PluginsTab({ onPluginsChange }) {
         const json = JSON.stringify(
           list.map((p) => ({ id: p.id, enabled: p.enabled })),
         );
+
         if (json !== lastJson) {
           lastJson = json;
           setPlugins(list);
@@ -47,10 +49,16 @@ export default function PluginsTab({ onPluginsChange }) {
 
   const toggle = async (plugin) => {
     const next = !plugin.enabled;
-    await invoke("set_plugin_enabled", { pluginId: plugin.id, enabled: next });
+
+    await invoke("set_plugin_enabled", {
+      pluginId: plugin.id,
+      enabled: next,
+    });
+
     const updated = plugins.map((p) =>
       p.id === plugin.id ? { ...p, enabled: next } : p,
     );
+
     setPlugins(updated);
     onPluginsChange?.(updated.filter((p) => p.enabled));
   };
@@ -60,116 +68,92 @@ export default function PluginsTab({ onPluginsChange }) {
     await invoke("open_item", { path: dir });
   };
 
-  if (loading)
+  const filteredPlugins = useMemo(() => {
+    if (!search.trim()) return plugins;
+
+    const q = search.toLowerCase();
+
+    return plugins.filter(
+      (p) =>
+        p.name?.toLowerCase().includes(q) ||
+        p.id?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q),
+    );
+  }, [plugins, search]);
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-32 text-base-content/50 text-sm">
         Loading plugins...
       </div>
     );
+  }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex justify-between items-center">
-        <p className="text-xs text-base-content/50">
-          Place a folder with <code className="font-mono">manifest.json</code> +{" "}
-          <code className="font-mono">index.js</code> in{" "}
-          <code className="font-mono">plugins/</code>
-        </p>
-        <button className="btn btn-sm btn-outline" onClick={openFolder}>
-          Open folder
-        </button>
+    <div className="flex flex-col h-full">
+      {/* 🔝 HEADER FIXE */}
+      <div className="flex flex-col gap-2 pb-3 border-b border-base-300 bg-base-100">
+        <input
+          className="input input-bordered input-sm w-full"
+          placeholder="Search plugins..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div className="flex justify-between items-center">
+          <p className="text-xs text-base-content/50">
+            Place plugins in <code className="font-mono">plugins/</code>
+          </p>
+
+          <button className="btn btn-sm btn-outline" onClick={openFolder}>
+            Open folder
+          </button>
+        </div>
       </div>
 
-      {plugins.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 h-40 text-base-content/40 text-lg rounded-box border border-dashed border-base-content/20">
-          <span>No plugins installed</span>
-        </div>
-      ) : (
-        plugins.map((plugin) => (
-          <div
-            key={plugin.id}
-            className={`flex items-center gap-3 p-3 rounded-box border transition-colors ${
-              plugin.enabled
-                ? "border-primary/40 bg-primary/5"
-                : "border-base-content/10 bg-base-100"
-            }`}
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-sm">{plugin.name}</span>
-                <span className="text-xs text-base-content/40 font-mono">
-                  v{plugin.version}
-                </span>
-              </div>
-              {plugin.description && (
-                <div
-                  className="text-xs text-base-content/60 mt-0.5 prose prose-sm max-w-none overflow-y-auto"
-                  style={{
-                    maxHeight:
-                      plugin.description.split("\n").length > 5 ||
-                      plugin.description.length > 400
-                        ? "6.5rem"
-                        : undefined,
-                  }}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ href, children }) => {
-                        const handleClick = async (e) => {
-                          e.preventDefault();
-                          if (!href) return;
-                          if (
-                            href.startsWith("http://") ||
-                            href.startsWith("https://")
-                          ) {
-                            await openUrl(href);
-                          }
-                        };
-                        return (
-                          <span
-                            onClick={handleClick}
-                            className="text-primary cursor-pointer hover:underline"
-                          >
-                            {children}
-                          </span>
-                        );
-                      },
-                    }}
-                  >
-                    {plugin.description}
-                  </ReactMarkdown>
+      {/* 📜 SCROLL AREA UNIQUEMENT ICI */}
+      <div className="flex-1 overflow-y-auto flex flex-col gap-3 pt-3">
+        {filteredPlugins.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 h-40 text-base-content/40 text-lg rounded-box border border-dashed border-base-content/20">
+            <span>No plugins found</span>
+          </div>
+        ) : (
+          filteredPlugins.map((plugin) => (
+            <div
+              key={plugin.id}
+              className={`flex items-center gap-3 p-3 rounded-box border transition-colors ${
+                plugin.enabled
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-base-content/10 bg-base-100"
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-sm">{plugin.name}</span>
+                  <span className="text-xs text-base-content/40 font-mono">
+                    v{plugin.version}
+                  </span>
                 </div>
-              )}
-              <div className="flex gap-1 flex-wrap mt-0.5">
-                {plugin.authors.map((a, i) =>
-                  a.url ? (
-                    <span
-                      key={i}
-                      onClick={() => openUrl(a.url)}
-                      className="text-xs text-primary/70 hover:text-primary cursor-pointer"
-                    >
-                      {a.name}
-                      {i < plugin.authors.length - 1 ? "," : ""}
-                    </span>
-                  ) : (
-                    <span key={i} className="text-xs text-base-content/40">
-                      {a.name}
-                      {i < plugin.authors.length - 1 ? "," : ""}
-                    </span>
-                  ),
+
+                {plugin.description && (
+                  <div className="text-xs text-base-content/60 mt-0.5 prose prose-sm max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {plugin.description}
+                    </ReactMarkdown>
+                  </div>
                 )}
               </div>
+
+              <input
+                type="checkbox"
+                className="toggle toggle-sm toggle-primary"
+                checked={plugin.enabled}
+                onChange={() => toggle(plugin)}
+              />
             </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-sm toggle-primary"
-              checked={plugin.enabled}
-              onChange={() => toggle(plugin)}
-            />
-          </div>
-        ))
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }
