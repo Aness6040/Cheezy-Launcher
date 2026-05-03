@@ -1,3 +1,5 @@
+![Cheezy Launcher](/full-title.png)
+
 # Cheezy Launcher
 
 
