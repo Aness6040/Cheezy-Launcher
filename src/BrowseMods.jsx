@@ -74,11 +74,12 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
   const [selectedCat, setSelectedCat] = useState(null);
   const [filePickerMod, setFilePickerMod] = useState(null);
   const [viewModal, setViewModal] = useState(null);
+  const [perPage, setPerPage] = useState(15);
 
   const [sortBy, setSortBy] = useState("_tsDateUpdated,DESC");
 
   const GAME_ID = 7692;
-  const PER_PAGE = 15;
+  const PER_PAGE = perPage;
   const CYOP_IDS = [25679, 22962, 25680];
   const GMLOADER_ID = 36921;
 
@@ -397,24 +398,57 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
         </div>
 
         {totalCount > 1 && (
-          <div className="join flex justify-center flex-shrink-0">
-            <button
-              className="join-item btn"
-              disabled={page === 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              ←
-            </button>
-            <span className="join-item btn btn-active">
-              Page {page} / {totalCount}
-            </span>
-            <button
-              className="join-item btn"
-              disabled={page >= totalCount}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              →
-            </button>
+          <div className="grid grid-cols-3 items-center w-full flex-shrink-0">
+            <div />
+
+            <div className="flex justify-center">
+              <div className="join">
+                <button
+                  className="join-item btn"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  ←
+                </button>
+
+                <span className="join-item btn btn-active">
+                  Page {page} / {totalCount}
+                </span>
+
+                <button
+                  className="join-item btn"
+                  disabled={page >= totalCount}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  →
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                className="btn btn-xs btn-outline h-8 min-h-8 px-2"
+                onClick={() => fetchMods(searchTerm, page)}
+              >
+                Refresh
+              </button>
+
+              <select
+                className="select select-xs select-bordered w-16 h-8 min-h-8 px-1"
+                value={perPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setPerPage(val);
+                  setPage(1);
+                  fetchMods(searchTerm, 1, selectedCat, sortBy);
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
           </div>
         )}
       </div>
