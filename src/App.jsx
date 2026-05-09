@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -7,27 +7,20 @@ import AnsiToHtml from "ansi-to-html";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import * as Babel from "@babel/standalone";
 import { joinPath, getGmlDir } from "./pathUtils";
 import ReactMarkdown from "react-markdown";
 import { check } from "@tauri-apps/plugin-updater";
 
-import {
-  start,
-  stop,
-  setActivity,
-  clearActivity,
-  destroy,
-} from "tauri-plugin-drpc";
+import { start, setActivity, clearActivity, destroy } from "tauri-plugin-drpc";
 import { Activity, Assets, Timestamps } from "tauri-plugin-drpc/activity";
 
 import ManageMods from "./ManageMods";
 import ManageGMLoader from "./ManageGMLoader";
 import BrowseMods from "./BrowseMods";
 import SettingsTab from "./SettingsTab";
-
 import PluginsTab from "./PluginsTab";
 import PluginHost from "./PluginHost";
+import { usePlugins } from "./usePlugins";
 
 function LogPanel({ logs, onClear }) {
   const convert = new AnsiToHtml();
@@ -72,17 +65,14 @@ function App() {
     const checkUpdate = async () => {
       try {
         const update = await check();
-
         if (update?.available) {
           setUpdateInfo(update);
-          console.log(updateInfo);
           setShowUpdateModal(true);
         }
       } catch (e) {
         console.error("Update check failed:", e);
       }
     };
-
     checkUpdate();
   }, []);
 
@@ -102,140 +92,38 @@ function App() {
     document.documentElement.setAttribute("data-theme", "light");
   }, []);
 
-  const [pluginTabs, setPluginTabs] = useState([]);
-  const [pluginReloadKey, setPluginReloadKey] = useState(0);
-  const reloadPlugins = () => {
-    pluginCacheRef.current = {};
-    setPluginReloadKey((k) => k + 1);
-    handlePluginsChange([]);
+  const addLog = (message) => {
+    const time = new Date().toLocaleTimeString();
+    setLogs((prev) => [...prev, `[${time}] ${message}`]);
   };
 
+  const activeTabRef = useRef(activeTab);
   useEffect(() => {
-    let lastJson = "";
-    const poll = setInterval(async () => {
-      try {
-        const list = await invoke("list_plugins");
-        const json = JSON.stringify(
-          list.map((p) => ({ id: p.id, enabled: p.enabled })),
-        );
-        if (json !== lastJson) {
-          lastJson = json;
-          handlePluginsChange(list.filter((p) => p.enabled));
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }, 5000);
-    return () => clearInterval(poll);
-  }, [pluginReloadKey]);
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
-  const pluginRegistryRef = useRef({}); // { pluginId: { hash, tabs, cleanup } }
-  const simpleHash = (str) => {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-    }
-    return h;
+  const pluginAPIRef = useRef({});
+  pluginAPIRef.current = {
+    addLog,
+    invoke,
+    openUrl,
+    joinPath,
+    getGmlDir,
+    getCurrentTabId: () => activeTabRef.current.split(":")[2],
+    isActiveTab: (id) =>
+      activeTabRef.current ===
+      `plugin:${activeTabRef.current.split(":")[1]}:${id}`,
+    get activeTab() {
+      return activeTabRef.current;
+    },
   };
 
-  const handlePluginsChange = async (enabledPlugins) => {
-    const registry = pluginRegistryRef.current;
-    const enabledIds = new Set(enabledPlugins.map((p) => p.id));
+  const pluginAPIProxy = useRef(
+    new Proxy({}, { get: (_, key) => pluginAPIRef.current[key] }),
+  ).current;
 
-    for (const id of Object.keys(registry)) {
-      if (!enabledIds.has(id)) {
-        try {
-          registry[id].cleanup?.();
-          console.log(`[plugins] cleanup: ${id}`);
-        } catch (e) {
-          console.warn(`[plugins] cleanup error for ${id}:`, e);
-        }
-        delete registry[id];
-      }
-    }
-
-    const newTabs = [];
-
-    for (const plugin of enabledPlugins) {
-      try {
-        const code = await invoke("read_plugin_script", {
-          pluginId: plugin.id,
-        });
-        const hash = simpleHash(code);
-
-        if (registry[plugin.id]?.hash === hash) {
-          newTabs.push(...registry[plugin.id].tabs);
-          continue;
-        }
-
-        if (registry[plugin.id]) {
-          try {
-            registry[plugin.id].cleanup?.();
-          } catch {}
-          delete registry[plugin.id];
-        }
-
-        let registered = null;
-        const sandboxedRegister = (def) => {
-          registered = def;
-        };
-
-        let compiled;
-        try {
-          compiled = Babel.transform(code, {
-            presets: ["react", "typescript"],
-            filename: "plugin.tsx",
-          }).code;
-        } catch (e) {
-          console.error(`Babel error in plugin ${plugin.id}:`, e);
-          continue;
-        }
-
-        try {
-          new Function("__ptRegisterPlugin", "React", "pluginAPI", compiled)(
-            sandboxedRegister,
-            React,
-            pluginAPIProxy,
-          );
-        } catch (e) {
-          console.error(`Runtime error in plugin ${plugin.id}:`, e);
-          continue;
-        }
-
-        if (!registered) continue;
-
-        const loadedTabs = (registered.tabs || []).map((tab) => ({
-          pluginId: plugin.id,
-          tabId: tab.id,
-          label: tab.label,
-          rpcState: tab.rpcState || tab.label,
-        }));
-
-        registry[plugin.id] = {
-          hash,
-          tabs: loadedTabs,
-          cleanup: registered.cleanup || null,
-          registered,
-        };
-
-        newTabs.push(...loadedTabs);
-      } catch (e) {
-        console.error(`Failed to load plugin ${plugin.id}:`, e);
-      }
-    }
-
-    setPluginTabs(newTabs);
-  };
-
-  useEffect(() => {
-    return () => {
-      for (const [id, entry] of Object.entries(pluginRegistryRef.current)) {
-        try {
-          entry.cleanup?.();
-        } catch {}
-      }
-    };
-  }, []);
+  const { pluginTabs, pluginRegistryRef, handlePluginsChange, reloadPlugins } =
+    usePlugins(pluginAPIProxy);
 
   const staticTabs = [
     { id: "tab1", label: "Manage Mods", rpcState: "Managing mods" },
@@ -289,35 +177,29 @@ function App() {
       .forEach((el) => el.remove());
 
     if (!theme) theme = "light";
-
     document.documentElement.setAttribute("data-theme", theme);
+
     const getColorSchemeFromStyle = (styleEl) => {
       const sheet = styleEl.sheet;
-
       if (!sheet) return null;
-
       for (const rule of sheet.cssRules) {
         if (rule.selectorText === ":root") {
           return rule.style.getPropertyValue("color-scheme").trim();
         }
       }
-
       return null;
     };
+
     let th = theme === "dark" ? "dark" : "light";
     try {
       const exeDir = await invoke("get_main_dir", { folderName: "" });
-
-      let css = await invoke("read_item", {
+      const css = await invoke("read_item", {
         path: joinPath(exeDir, "themes", `${theme}.css`),
       });
-
       const el = document.createElement("style");
       el.setAttribute("data-theme-custom", theme);
       el.textContent = css;
-
       document.head.appendChild(el);
-
       const scheme = getColorSchemeFromStyle(el);
       th = scheme === null ? "light" : scheme;
     } catch (e) {}
@@ -325,37 +207,6 @@ function App() {
       await getCurrentWindow().setTheme(th);
     } catch (e) {}
   };
-
-  const addLog = (message) => {
-    const time = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev, `[${time}] ${message}`]);
-  };
-  const activeTabRef = useRef(activeTab);
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
-
-  const pluginAPIRef = useRef({});
-  pluginAPIRef.current = {
-    addLog,
-    invoke,
-    openUrl,
-    joinPath,
-    getGmlDir,
-    getCurrentTabId: () => activeTabRef.current.split(":")[2],
-    isActiveTab: (id) =>
-      activeTabRef.current ===
-      `plugin:${activeTabRef.current.split(":")[1]}:${id}`,
-    get activeTab() {
-      return activeTabRef.current;
-    },
-  };
-  const pluginAPIProxy = new Proxy(
-    {},
-    {
-      get: (_, key) => pluginAPIRef.current[key],
-    },
-  );
 
   useEffect(() => {
     const unlisten = listen("download-progress", (event) => {
@@ -412,7 +263,6 @@ function App() {
 
       if (prefetched) {
         ({ files, description, rootCatId, rootCatParentId } = prefetched);
-        // reconstruire data pour le mod.json
         data = {
           _aSubmitter: { _sName: prefetched.mod.owner },
           _aRootCategory: { _sName: prefetched.mod.cat, _idRow: rootCatId },
@@ -469,7 +319,6 @@ function App() {
         return;
 
       addLog(`Downloading ${file._sFile}...`);
-
       setDownloadProgress({
         file_name: file._sFile,
         percent: 0,
@@ -544,33 +393,25 @@ function App() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70">
           <div className="bg-base-100 rounded-box shadow-xl p-6 w-[500px] flex flex-col gap-4">
             <h2 className="text-xl font-bold text-center">Update Available</h2>
-
             <p className="text-sm opacity-80">
               A new version of Cheezy Launcher is available.
             </p>
-
             <div className="bg-base-200 p-3 rounded-box font-mono max-h-40 overflow-auto">
               <div className="font-bold mb-2">Info:</div>
               <ReactMarkdown>
                 {updateInfo?.body || "No changelog provided"}
               </ReactMarkdown>
             </div>
-
             <div className="flex gap-2 justify-end mt-2">
               <button
                 className="btn btn-error btn-sm"
-                onClick={() => {
-                  setShowUpdateModal(false);
-                }}
+                onClick={() => setShowUpdateModal(false)}
               >
                 Later
               </button>
-
               <button
                 className="btn btn-primary btn-sm"
-                onClick={async () => {
-                  await updateInfo.downloadAndInstall();
-                }}
+                onClick={async () => await updateInfo.downloadAndInstall()}
               >
                 Update now
               </button>
@@ -578,6 +419,7 @@ function App() {
           </div>
         </div>
       )}
+
       <div role="tablist" className="tabs tabs-border flex justify-between">
         <div className="flex gap-1 tabs-border">
           {Ftabs.map((tab) => (
@@ -609,6 +451,7 @@ function App() {
           </a>
         </div>
       </div>
+
       <div className="flex-1 p-4 bg-base-200 rounded-box">
         <div
           className="flex-1 overflow-auto"
@@ -639,11 +482,12 @@ function App() {
               onInstall={handleGBInstall}
             />
           )}
-
           {activeTab === "plugins" && (
-            <PluginsTab onPluginsChange={handlePluginsChange} />
+            <PluginsTab
+              onPluginsChange={handlePluginsChange}
+              onReload={reloadPlugins}
+            />
           )}
-
           {activeTab.startsWith("plugin:") &&
             (() => {
               const [, pluginId, tabId] = activeTab.split(":");
@@ -656,7 +500,6 @@ function App() {
                 />
               );
             })()}
-
           {activeTab === "settings" && (
             <SettingsTab
               onSave={(s) => setSettings(s)}
@@ -670,6 +513,7 @@ function App() {
           </div>
         )}
       </div>
+
       {downloadProgress && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-base-100 rounded-box shadow-xl p-5 w-96 flex flex-col gap-3 text-center">
@@ -680,7 +524,7 @@ function App() {
               className="progress progress-primary w-full"
               value={downloadProgress.percent}
               max="100"
-            ></progress>
+            />
             <span className="text-xs font-mono">
               {downloadProgress.percent}% ({downloadProgress.downloaded_mb} MB /{" "}
               {downloadProgress.total_mb} MB)
