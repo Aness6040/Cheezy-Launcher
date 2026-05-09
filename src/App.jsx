@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 import AnsiToHtml from "ansi-to-html";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as Babel from "@babel/standalone";
 import { joinPath, getGmlDir } from "./pathUtils";
@@ -128,23 +129,31 @@ function App() {
     return () => clearInterval(poll);
   }, [pluginReloadKey]);
 
-  const pluginCacheRef = useRef({});
+  const pluginRegistryRef = useRef({}); // { pluginId: { hash, tabs, cleanup } }
+  const simpleHash = (str) => {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    }
+    return h;
+  };
 
   const handlePluginsChange = async (enabledPlugins) => {
-    if (!window.React) {
-      const r = await import("react");
-      window.React = r;
+    const registry = pluginRegistryRef.current;
+    const enabledIds = new Set(enabledPlugins.map((p) => p.id));
+
+    for (const id of Object.keys(registry)) {
+      if (!enabledIds.has(id)) {
+        try {
+          registry[id].cleanup?.();
+          console.log(`[plugins] cleanup: ${id}`);
+        } catch (e) {
+          console.warn(`[plugins] cleanup error for ${id}:`, e);
+        }
+        delete registry[id];
+      }
     }
 
-    const simpleHash = (str) => {
-      let h = 0;
-      for (let i = 0; i < str.length; i++) {
-        h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-      }
-      return h;
-    };
-
-    const cache = pluginCacheRef.current;
     const newTabs = [];
 
     for (const plugin of enabledPlugins) {
@@ -154,13 +163,20 @@ function App() {
         });
         const hash = simpleHash(code);
 
-        if (cache[plugin.id] && cache[plugin.id].hash === hash) {
-          newTabs.push(...cache[plugin.id].tabs);
+        if (registry[plugin.id]?.hash === hash) {
+          newTabs.push(...registry[plugin.id].tabs);
           continue;
         }
 
+        if (registry[plugin.id]) {
+          try {
+            registry[plugin.id].cleanup?.();
+          } catch {}
+          delete registry[plugin.id];
+        }
+
         let registered = null;
-        window.__ptRegisterPlugin = (def) => {
+        const sandboxedRegister = (def) => {
           registered = def;
         };
 
@@ -176,44 +192,50 @@ function App() {
         }
 
         try {
-          new Function(compiled)();
+          new Function("__ptRegisterPlugin", "React", "pluginAPI", compiled)(
+            sandboxedRegister,
+            React,
+            pluginAPIProxy,
+          );
         } catch (e) {
           console.error(`Runtime error in plugin ${plugin.id}:`, e);
           continue;
         }
 
-        const loadedTabs = [];
-        if (registered?.tabs) {
-          for (const tab of registered.tabs) {
-            loadedTabs.push({
-              pluginId: plugin.id,
-              tabId: tab.id,
-              label: tab.label,
-              rpcState: tab.rpcState || tab.label,
-            });
-          }
-        }
-        cache[plugin.id] = { hash, tabs: loadedTabs };
+        if (!registered) continue;
+
+        const loadedTabs = (registered.tabs || []).map((tab) => ({
+          pluginId: plugin.id,
+          tabId: tab.id,
+          label: tab.label,
+          rpcState: tab.rpcState || tab.label,
+        }));
+
+        registry[plugin.id] = {
+          hash,
+          tabs: loadedTabs,
+          cleanup: registered.cleanup || null,
+          registered,
+        };
+
         newTabs.push(...loadedTabs);
       } catch (e) {
-        console.error(`Failed to load tabs for plugin ${plugin.id}:`, e);
+        console.error(`Failed to load plugin ${plugin.id}:`, e);
       }
     }
 
-    const enabledIds = new Set(enabledPlugins.map((p) => p.id));
-    for (const id of Object.keys(cache)) {
-      if (!enabledIds.has(id)) delete cache[id];
-    }
-
     setPluginTabs(newTabs);
-    setActiveTab((prev) => {
-      if (!prev.startsWith("plugin:")) return prev;
-      const stillExists = newTabs.some(
-        (t) => `plugin:${t.pluginId}:${t.tabId}` === prev,
-      );
-      return stillExists ? prev : "tab1";
-    });
   };
+
+  useEffect(() => {
+    return () => {
+      for (const [id, entry] of Object.entries(pluginRegistryRef.current)) {
+        try {
+          entry.cleanup?.();
+        } catch {}
+      }
+    };
+  }, []);
 
   const staticTabs = [
     { id: "tab1", label: "Manage Mods", rpcState: "Managing mods" },
@@ -308,6 +330,32 @@ function App() {
     const time = new Date().toLocaleTimeString();
     setLogs((prev) => [...prev, `[${time}] ${message}`]);
   };
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const pluginAPIRef = useRef({});
+  pluginAPIRef.current = {
+    addLog,
+    invoke,
+    openUrl,
+    joinPath,
+    getGmlDir,
+    getCurrentTabId: () => activeTabRef.current.split(":")[2],
+    isActiveTab: (id) =>
+      activeTabRef.current ===
+      `plugin:${activeTabRef.current.split(":")[1]}:${id}`,
+    get activeTab() {
+      return activeTabRef.current;
+    },
+  };
+  const pluginAPIProxy = new Proxy(
+    {},
+    {
+      get: (_, key) => pluginAPIRef.current[key],
+    },
+  );
 
   useEffect(() => {
     const unlisten = listen("download-progress", (event) => {
@@ -602,9 +650,9 @@ function App() {
               return (
                 <PluginHost
                   key={activeTab}
-                  pluginId={pluginId}
+                  registered={pluginRegistryRef.current[pluginId]?.registered}
                   tabId={tabId}
-                  addLog={addLog}
+                  pluginAPI={pluginAPIProxy}
                 />
               );
             })()}
