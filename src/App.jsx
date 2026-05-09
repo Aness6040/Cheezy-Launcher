@@ -97,6 +97,12 @@ function App() {
     setLogs((prev) => [...prev, `[${time}] ${message}`]);
   };
 
+  useEffect(() => {
+    invoke("list_plugins")
+      .then((list) => handlePluginsChange(list.filter((p) => p.enabled)))
+      .catch(console.error);
+  }, []);
+
   const activeTabRef = useRef(activeTab);
   useEffect(() => {
     activeTabRef.current = activeTab;
