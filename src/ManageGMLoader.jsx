@@ -332,79 +332,82 @@ function ManageGMLoader({ modsDir, addLog, onDropInstall }) {
       <div className="flex items-center justify-between flex-shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold">GMLoader Mods</p>
+
           {!gmloaderInstalled && (
             <span className="badge badge-error badge-sm">
               GMLoader not installed
             </span>
           )}
+
           {selected.length > 0 && (
             <span className="badge badge-primary badge-sm">
               {selected.length} selected
             </span>
           )}
         </div>
-        {loading && (
-          <div className="flex gap-2 flex-wrap justify-end items-center">
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input input-bordered input-sm w-32"
-            />
-            {selected.length > 0 && (
-              <>
-                <button
-                  onClick={() => handleSetTopPriority(selected)}
-                  className="btn btn-xs btn-outline"
-                >
-                  ↑ Top
-                </button>
-                <button
-                  onClick={() => handleSetBottomPriority(selected)}
-                  className="btn btn-xs btn-outline"
-                >
-                  ↓ Bottom
-                </button>
-                <button
-                  onClick={() => handleToggleSelected(selected, true)}
-                  className="btn btn-xs btn-outline"
-                >
-                  Enable
-                </button>
-                <button
-                  onClick={() => handleToggleSelected(selected, false)}
-                  className="btn btn-xs btn-outline"
-                >
-                  Disable
-                </button>
-                <button
-                  onClick={() => handleDeleteSelected(selected)}
-                  className="btn btn-xs btn-error"
-                >
-                  Delete
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => {
-                setSelectMode((p) => !p);
-                setSelected([]);
-              }}
-              className={`btn btn-xs ${selectMode ? "btn-primary" : "btn-outline"}`}
-            >
-              {selectMode ? "✓ Select" : "Select"}
-            </button>
-            <button
-              onClick={handleSelectAll}
-              className="btn btn-xs btn-outline"
-            >
-              {selected.length === mods.length && mods.length > 0
-                ? "Deselect All"
-                : "Select All"}
-            </button>
-          </div>
-        )}
+
+        <div className="flex items-center gap-2">
+          {/* 🔍 SEARCH */}
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search..."
+            className="input input-bordered input-xs w-32"
+          />
+
+          {/* actions */}
+          {selected.length > 0 && (
+            <>
+              <button
+                onClick={() => handleSetTopPriority(selected)}
+                className="btn btn-xs btn-outline"
+              >
+                ↑ Top
+              </button>
+              <button
+                onClick={() => handleSetBottomPriority(selected)}
+                className="btn btn-xs btn-outline"
+              >
+                ↓ Bottom
+              </button>
+              <button
+                onClick={() => handleToggleSelected(selected, true)}
+                className="btn btn-xs btn-outline"
+              >
+                Enable
+              </button>
+              <button
+                onClick={() => handleToggleSelected(selected, false)}
+                className="btn btn-xs btn-outline"
+              >
+                Disable
+              </button>
+              <button
+                onClick={() => handleDeleteSelected(selected)}
+                className="btn btn-xs btn-error"
+              >
+                Delete
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => {
+              setSelectMode((p) => !p);
+              setSelected([]);
+            }}
+            className={`btn btn-xs ${selectMode ? "btn-primary" : "btn-outline"}`}
+          >
+            {selectMode ? "✓ Select" : "Select"}
+          </button>
+
+          <button onClick={handleSelectAll} className="btn btn-xs btn-outline">
+            {selected.length === mods.length && mods.length > 0
+              ? "Deselect All"
+              : "Select All"}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -422,7 +425,11 @@ function ManageGMLoader({ modsDir, addLog, onDropInstall }) {
             collisionDetection={closestCenter}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
-            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            modifiers={
+              searchTerm
+                ? []
+                : [restrictToVerticalAxis, restrictToParentElement]
+            }
           >
             <SortableContext
               items={filteredMods.map(({ name }) => name)}
