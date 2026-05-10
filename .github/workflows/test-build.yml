@@ -23,7 +23,7 @@ jobs:
           node-version: 25
 
       - run: corepack enable
-      - run: pnpm install
+      - run: pnpm install --unsafe-perm
 
       - uses: dtolnay/rust-toolchain@stable
 
