@@ -40,25 +40,36 @@ jobs:
         if: matrix.name == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            fuse \
+            desktop-file-utils \
+            appstream
 
       - name: Build Tauri App
         run: pnpm tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - name: Zip Windows executable
+      - name: Zip Windows executable (FULL)
         if: matrix.name == 'windows'
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path src-tauri/target/release -Filter *.exe -Recurse | Select-Object -First 1
-          Compress-Archive -Path $exe.FullName -DestinationPath "Cheezy.Launcher_windows.zip"
+          Compress-Archive `
+            -Path "src-tauri/target/release/bundle/*" `
+            -DestinationPath "Cheezy.Launcher_windows.zip"
 
-      - name: Tar.gz Linux executable
+      - name: Tar.gz Linux bundle
         if: matrix.name == 'linux'
         run: |
-          EXE=$(find src-tauri/target/release -type f -executable | head -n 1)
-          tar -czvf Cheezy.Launcher_linux.tar.gz -C "$(dirname "$EXE")" "$(basename "$EXE")"
+          tar -czvf Cheezy.Launcher_linux.tar.gz \
+            -C src-tauri/target/release/bundle \
+            .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
