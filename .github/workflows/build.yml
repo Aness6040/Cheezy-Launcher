@@ -49,8 +49,8 @@ jobs:
 
       - name: Build Tauri App
         run: pnpm tauri build
-        env:
-    	  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+	env:
+	  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Zip Windows executable
         if: matrix.name == 'windows'
