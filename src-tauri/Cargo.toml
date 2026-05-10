@@ -4,6 +4,7 @@ version = "0.0.2"
 description = "A Mod Launcher made for Pizza Tower"
 authors = ["Aness6040"]
 edition = "2021"
+default-run = "cheezy-launcher"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -37,6 +38,7 @@ tauri-plugin-deep-link = "2"
 unrar = "0.5.8"
 tauri-plugin-drpc = "0.1.6"
 tauri-plugin-os = "2"
+steamworks = "0.13.1"
 
 [build]
 incremental = true
@@ -44,3 +46,6 @@ incremental = true
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 
+[[bin]]
+name = "cheezylauncher-steamhelper"
+path = "src/bin/cheezylauncher-steamhelper.rs"

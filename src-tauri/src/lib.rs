@@ -147,14 +147,14 @@ fn get_settings() -> Result<Settings, String> {
 
         #[cfg(not(windows))]
         {
-        if find_proton_path(true).is_some() {
-            return "proton_experimental".into();
-        }
+            if find_proton_path(true).is_some() {
+                return "proton_experimental".into();
+            }
 
-        if find_proton_path(false).is_some() {
-            return "proton".into();
-        }
-        "wine".into()
+            if find_proton_path(false).is_some() {
+                return "proton".into();
+            }
+            "wine".into()
         }
     }
 
@@ -194,12 +194,7 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
         let is_windows_file = exe_path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| {
-                matches!(
-                    ext.to_lowercase().as_str(),
-                    "exe" | "msi" | "bat" | "cmd"
-                )
-            })
+            .map(|ext| matches!(ext.to_lowercase().as_str(), "exe" | "msi" | "bat" | "cmd"))
             .unwrap_or(false);
 
         if is_windows_file {
@@ -302,8 +297,6 @@ fn resolve_wine_runner(
         _ => ("wine".into(), vec![], env_vars),
     }
 }
-
-
 
 #[cfg(not(windows))]
 fn find_proton_path(experimental: bool) -> Option<String> {
@@ -1275,7 +1268,10 @@ fn mount_vfs(
                                 } else if line.starts_with("CheckHash=") {
                                     "CheckHash=false".to_string()
                                 } else if line.starts_with("AutoGameStart=") {
-                                    format!("AutoGameStart={}", if auto_restart { "true" } else { "false" })
+                                    format!(
+                                        "AutoGameStart={}",
+                                        if auto_restart { "true" } else { "false" }
+                                    )
                                 } else if line.starts_with("GameData=") {
                                     "GameData=data.win".to_string()
                                 } else {
@@ -1332,8 +1328,7 @@ fn unmount_vfs(vfs_root: String) -> Result<(), String> {
                     println!("GMLoader.log moved to exe directory");
                 }
                 Err(_) => {
-                    fs::copy(&log_src, &log_dst)
-                        .map_err(|e| e.to_string())?;
+                    fs::copy(&log_src, &log_dst).map_err(|e| e.to_string())?;
                     println!("GMLoader.log copied to exe directory");
                 }
             }
@@ -1368,6 +1363,45 @@ async fn launch_game(
         s.operation_running = false;
         return Err(format!("Exe not found: {:?}", exe_path));
     }
+
+    let steam_helper_child = if exe_name == settings.exe_name && settings.steam_api {
+        let helper_name = if cfg!(windows) {
+            "cheezylauncher-steamhelper.exe"
+        } else {
+            "cheezylauncher-steamhelper"
+        };
+
+        let helper_path = exe_dir().ok().map(|d| d.join(helper_name));
+
+        if let Some(path) = helper_path.filter(|p| p.exists()) {
+            #[cfg(not(windows))]
+            let _ = ensure_executable(&path);
+
+            let mut cmd = Command::new(&path);
+            cmd.arg(&vfs_root)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .stdin(Stdio::null());
+
+            #[cfg(not(windows))]
+            {
+                // Sur Linux : libsteam_api.so natif depuis le dossier Steam linux64
+                if let Ok(steam_dir) = steamlocate::SteamDir::locate() {
+                    let lib_path = steam_dir.path().join("linux64");
+                    if lib_path.exists() {
+                        cmd.env("LD_LIBRARY_PATH", lib_path);
+                    }
+                }
+            }
+
+            cmd.spawn().ok()
+        } else {
+            eprintln!("[cheezy-steam-helper] binary not found: {}", helper_name);
+            None
+        }
+    } else {
+        None
+    };
 
     let mut child = {
         let mut cmd = build_command(&exe_path, &settings);
@@ -1430,6 +1464,10 @@ async fn launch_game(
     let state_clone = Arc::clone(&state);
     std::thread::spawn(move || {
         let _ = child.wait();
+        if let Some(mut helper) = steam_helper_child {
+            let _ = helper.kill();
+            let _ = helper.wait();
+        }
         let mut s = state_clone.lock().unwrap();
         s.operation_running = false;
         s.game_pid = None;
@@ -1910,7 +1948,6 @@ fn read_plugin_script(plugin_id: String) -> Result<String, String> {
 
     Err("No entry file found".into())
 }
-
 
 #[tauri::command]
 async fn download_gmloader(
