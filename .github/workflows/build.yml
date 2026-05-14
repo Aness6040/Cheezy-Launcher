@@ -88,6 +88,7 @@ jobs:
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> $GITHUB_ENV
           echo "NO_STRIP=1" >> $GITHUB_ENV
           echo "TAURI_SKIP_DEVTOOLS=true" >> $GITHUB_ENV
+          echo "USE_SYSTEM_FUSE=1" >> $GITHUB_ENV
 
       - name: Build Tauri App
         run: pnpm tauri build

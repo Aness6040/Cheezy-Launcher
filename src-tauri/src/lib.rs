@@ -432,6 +432,7 @@ fn writable_base() -> Result<PathBuf, String> {
         let _ = fs::remove_file(&test);
         Ok(exe)
     } else {
+        eprintln!("[writable_base] exe dir not writable, falling back to TEMP. Run as admin for better performance.");
         let fallback = std::env::temp_dir().join("CheezyLauncher");
         fs::create_dir_all(&fallback).map_err(|e| e.to_string())?;
         Ok(fallback)
@@ -1389,7 +1390,10 @@ async fn launch_game(
             "cheezylauncher-steamhelper"
         };
 
-        let helper_path = exe_dir().ok().map(|d| d.join("deps").join(&helper_name));
+        let helper_path = exe_dir().ok().and_then(|d| {
+            let path = d.join("deps").join(&helper_name);
+            if path.exists() { Some(path) } else { None }
+        });
 
         if let Some(path) = helper_path {
             #[cfg(not(windows))]
