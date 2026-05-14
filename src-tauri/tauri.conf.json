@@ -50,10 +50,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true,
-    "nsis": {
-      "installMode": "currentUser",
-      "portable": true
-    }
+    "createUpdaterArtifacts": true
   }
 }

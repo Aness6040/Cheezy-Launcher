@@ -92,11 +92,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $portableExe = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_portable.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($portableExe) {
-            Copy-Item $portableExe.FullName "Cheezy.Launcher_portable.exe"
-            Compress-Archive -Path "Cheezy.Launcher_portable.exe" -DestinationPath "Cheezy.Launcher_windows-portable.zip"
-          }
+          Copy-Item "src-tauri/target/release/cheezy-launcher.exe" "Cheezy.Launcher_x64_portable.exe"
+          Compress-Archive -Path "Cheezy.Launcher_x64_portable.exe" -DestinationPath "Cheezy.Launcher_windows-portable.zip"
 
       - name: Package Linux bundle
         if: runner.os == 'Linux'

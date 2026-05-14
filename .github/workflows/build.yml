@@ -100,11 +100,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $portableExe = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_portable.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($portableExe) {
-            Copy-Item $portableExe.FullName "Cheezy.Launcher_${{ github.ref_name }}_portable.exe"
-            Compress-Archive -Path "Cheezy.Launcher_${{ github.ref_name }}_portable.exe" -DestinationPath "Cheezy.Launcher_${{ github.ref_name }}_windows-portable.zip"
-          }
+          Copy-Item "src-tauri/target/release/cheezy-launcher.exe" "Cheezy.Launcher_${{ github.ref_name }}_x64_portable.exe"
+          Compress-Archive -Path "Cheezy.Launcher_${{ github.ref_name }}_x64_portable.exe" -DestinationPath "Cheezy.Launcher_${{ github.ref_name }}_windows-portable.zip"
 
       - name: Package Linux bundle
         if: runner.os == 'Linux'
@@ -165,12 +162,12 @@ jobs:
             |----------|------|-------------|
             | Windows | `*_x64-setup.exe` | NSIS installer (recommended for most users) |
             | Windows | `*_x64_en-US.msi` | MSI installer (enterprise deployment) |
-            | Windows | `*_x64_portable.exe` | **Portable** no installation, just run |
+            | Windows | `*_windows-portable.zip` | **Portable** — no installation, just unzip and run |
             | Linux | `*_amd64.AppImage` | AppImage (works on any distro) |
             | Linux | `*_amd64.deb` | Debian/Ubuntu package |
             | Linux | `*.x86_64.rpm` | Fedora/RHEL package |
 
-            > 💡 On Windows, the **portable `.exe`** needs no installation, just download and run.
+            > 💡 On Windows, the **portable zip** needs no installation, just unzip and run.
 
             ### Commits:
             ${{ steps.commits.outputs.body }}
@@ -182,4 +179,3 @@ jobs:
             *.tar.gz
             **/*.msi
             **/*setup.exe
-            **/*_portable.exe
