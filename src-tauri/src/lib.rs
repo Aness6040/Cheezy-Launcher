@@ -1389,15 +1389,7 @@ async fn launch_game(
             "cheezylauncher-steamhelper"
         };
 
-        let helper_path = exe_dir().ok().and_then(|d| {
-            let deps = d.join("deps").join(&helper_name);
-            if deps.exists() {
-                Some(deps)
-            } else {
-                let exe = d.join(&helper_name);
-                if exe.exists() { Some(exe) } else { None }
-            }
-        });
+        let helper_path = exe_dir().ok().map(|d| d.join("deps").join(&helper_name));
 
         if let Some(path) = helper_path {
             #[cfg(not(windows))]

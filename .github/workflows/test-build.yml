@@ -88,6 +88,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: 1
           ARCH: x86_64
 
       - name: Package Windows portable
@@ -95,19 +96,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path staging-portable
-          Get-ChildItem "src-tauri/target/release" -Exclude "build", "bundle", "*.d", "*.o", "*.rlib", "*.pdb" | Copy-Item -Destination staging-portable -Recurse
-          if (Test-Path "src-tauri/deps") { Copy-Item "src-tauri/deps/*" staging-portable -Recurse }
-          if (Test-Path "src-tauri/prepatches") { Copy-Item "src-tauri/prepatches/*" staging-portable -Recurse }
+          New-Item -ItemType Directory -Force -Path staging-portable/deps
+          Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
+          if (Test-Path "src-tauri/deps/xdelta3.exe") { Copy-Item "src-tauri/deps/xdelta3.exe" staging-portable/deps }
+          if (Test-Path "src-tauri/deps/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/deps/cheezylauncher-steamhelper.exe" staging-portable/deps }
           Compress-Archive -Path "staging-portable/*" -DestinationPath "Cheezy.Launcher_windows-portable.zip"
 
-      - name: Package Linux portable
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p staging-portable
-          rsync -a --exclude='build' --exclude='bundle' --exclude='*.d' --exclude='*.o' --exclude='*.rlib' src-tauri/target/release/ staging-portable/
-          [ -d src-tauri/deps ] && cp -r src-tauri/deps/* staging-portable/
-          [ -d src-tauri/prepatches ] && cp -r src-tauri/prepatches/* staging-portable/
-          tar -czvf Cheezy.Launcher_linux.tar.gz -C staging-portable .
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -115,5 +109,4 @@ jobs:
           name: test-build-${{ matrix.artifact-name }}
           path: |
             *.zip
-            *.tar.gz
             src-tauri/target/release/bundle/**
