@@ -425,9 +425,27 @@ fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
     fs::copy(src, dst).map(|_| ()).map_err(|e| e.to_string())
 }
 
+fn writable_base() -> Result<PathBuf, String> {
+    let exe = exe_dir()?;
+    let test = exe.join(".write_test");
+    if fs::write(&test, "").is_ok() {
+        let _ = fs::remove_file(&test);
+        Ok(exe)
+    } else {
+        let fallback = std::env::temp_dir().join("CheezyLauncher");
+        fs::create_dir_all(&fallback).map_err(|e| e.to_string())?;
+        Ok(fallback)
+    }
+}
+
 #[tauri::command]
 fn get_main_dir(folder_name: String) -> Result<String, String> {
-    let dir = exe_dir()?.join(&folder_name);
+    let base = if folder_name.is_empty() {
+        exe_dir()?
+    } else {
+        writable_base()?
+    };
+    let dir = base.join(&folder_name);
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
@@ -1371,9 +1389,17 @@ async fn launch_game(
             "cheezylauncher-steamhelper"
         };
 
-        let helper_path = exe_dir().ok().map(|d| d.join(helper_name));
+        let helper_path = exe_dir().ok().and_then(|d| {
+            let deps = d.join("deps").join(&helper_name);
+            if deps.exists() {
+                Some(deps)
+            } else {
+                let exe = d.join(&helper_name);
+                if exe.exists() { Some(exe) } else { None }
+            }
+        });
 
-        if let Some(path) = helper_path.filter(|p| p.exists()) {
+        if let Some(path) = helper_path {
             #[cfg(not(windows))]
             let _ = ensure_executable(&path);
 
