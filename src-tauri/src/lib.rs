@@ -184,7 +184,7 @@ fn get_settings() -> Result<Settings, String> {
     Ok(default)
 }
 
-fn build_command(exe_path: &Path, settings: &Settings) -> Command {
+fn build_command(exe_path: &Path, _settings: &Settings) -> Command {
     #[cfg(windows)]
     {
         Command::new(exe_path)
@@ -198,7 +198,7 @@ fn build_command(exe_path: &Path, settings: &Settings) -> Command {
             .unwrap_or(false);
 
         if is_windows_file {
-            let (runner, extra_args, env_vars) = resolve_wine_runner(settings);
+            let (runner, extra_args, env_vars) = resolve_wine_runner(_settings);
             let mut cmd = Command::new(&runner);
 
             for arg in &extra_args {
@@ -406,12 +406,12 @@ fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // 1. hardlink (no perms, same volume mandatory)
+    // 1. hardlink (no special perms, same volume mandatory)
     if fs::hard_link(src, dst).is_ok() {
         return Ok(());
     }
 
-    // 2. symlink (admin rights or dev mode)
+    // 2. symlink (needs admin or dev mode on Windows)
     #[cfg(windows)]
     if std::os::windows::fs::symlink_file(src, dst).is_ok() {
         return Ok(());
@@ -421,7 +421,23 @@ fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
         return Ok(());
     }
 
-    // 3. copy (universal fallback, annoying)
+    // 3. mklink fallback (Windows only — junctions for dirs, hardlinks for files, no admin needed)
+    #[cfg(windows)]
+    {
+        let flag = if src.is_dir() { "/J" } else { "/H" };
+        let dst_str = format!("\"{}\"", dst.display());
+        let src_str = format!("\"{}\"", src.display());
+        if std::process::Command::new("cmd.exe")
+            .args(["/c", "mklink", flag, &dst_str, &src_str])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+    }
+
+    // 4. copy (universal fallback)
     fs::copy(src, dst).map(|_| ()).map_err(|e| e.to_string())
 }
 
