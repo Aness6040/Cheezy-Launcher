@@ -95,18 +95,27 @@ jobs:
         run: pnpm tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          ARCH: x86_64
 
       - name: Package Windows portable
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item "src-tauri/target/release/cheezy-launcher.exe" "Cheezy.Launcher_${{ github.ref_name }}_x64_portable.exe"
-          Compress-Archive -Path "Cheezy.Launcher_${{ github.ref_name }}_x64_portable.exe" -DestinationPath "Cheezy.Launcher_${{ github.ref_name }}_windows-portable.zip"
+          New-Item -ItemType Directory -Force -Path staging-portable
+          Get-ChildItem "src-tauri/target/release" -Exclude "build", "bundle", "*.d", "*.o", "*.rlib", "*.pdb" | Copy-Item -Destination staging-portable -Recurse
+          if (Test-Path "src-tauri/deps") { Copy-Item "src-tauri/deps/*" staging-portable -Recurse }
+          if (Test-Path "src-tauri/prepatches") { Copy-Item "src-tauri/prepatches/*" staging-portable -Recurse }
+          Compress-Archive -Path "staging-portable/*" -DestinationPath "Cheezy.Launcher_${{ github.ref_name }}_windows-portable.zip"
 
-      - name: Package Linux bundle
+      - name: Package Linux portable
         if: runner.os == 'Linux'
         run: |
-          tar -czvf "Cheezy.Launcher_${{ github.ref_name }}_linux.tar.gz" -C src-tauri/target/release/bundle .
+          mkdir -p staging-portable
+          rsync -a --exclude='build' --exclude='bundle' --exclude='*.d' --exclude='*.o' --exclude='*.rlib' src-tauri/target/release/ staging-portable/
+          [ -d src-tauri/deps ] && cp -r src-tauri/deps/* staging-portable/
+          [ -d src-tauri/prepatches ] && cp -r src-tauri/prepatches/* staging-portable/
+          tar -czvf "Cheezy.Launcher_${{ github.ref_name }}_linux.tar.gz" -C staging-portable .
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -115,8 +124,7 @@ jobs:
           path: |
             *.zip
             *.tar.gz
-            src-tauri/target/release/bundle/msi/**
-            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/**
 
   release:
     needs: build
@@ -179,3 +187,6 @@ jobs:
             *.tar.gz
             **/*.msi
             **/*setup.exe
+            **/*.AppImage
+            **/*.deb
+            **/*.rpm
