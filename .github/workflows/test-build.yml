@@ -54,7 +54,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: latest
+          version: "20.1"
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
