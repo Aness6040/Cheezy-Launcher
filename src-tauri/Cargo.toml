@@ -30,6 +30,7 @@ tauri-plugin-single-instance = { version = "2.4.0", features = ["deep-link"] }
 zip = "8.3.0"
 sevenz-rust = "0.6.1"
 reqwest = "0.13.2"
+xdelta3 = "0.1.5"
 tokio = "1.50.0"
 steamlocate = "2.0.1"
 tauri-plugin-dialog = "2.6.0"

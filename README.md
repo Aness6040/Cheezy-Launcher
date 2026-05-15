@@ -19,7 +19,7 @@ It aims to improve the Pizza Tower Modding Community experience by providing a m
 Check the [Wiki](https://github.com/Aness6040/Cheezy-Launcher/wiki) for more information about Cheezy Launcher.
 
 ## ⚠️ WARNING: This project is still a Work In Progress (WIP). Expect bugs, missing features, and frequent changes.
-## WINE/Proton (Steam) is required for the linux version (to make the xdelta patcher and the game working)
+## WINE/Proton (Steam) is required for the linux version (to make the game working)
 ## Using Admin or Developer mode is more than recommended since it uses technologies like symlinks
 
 ### Fair Comparison
@@ -28,7 +28,7 @@ Check the [Wiki](https://github.com/Aness6040/Cheezy-Launcher/wiki) for more inf
 |-|-|-|-|
 |No admin rights or developer mode required|✅|✅|⚠️ Depends on the device and drive, it may disable VFS|
 |VFS support|❌(Everything is overwritten and backed-up for mods)|✅ (USVFS)|⚠️ Yes but limited (depends on admin/dev permission, symlink)|
-|Native linux support|❌|❌|✅ (You still need wine/proton to make the xdelta patcher and the game working)|
+|Native linux support|❌|❌|✅ (You still need wine/proton to make the game working)|
 |Auto Updates|✅|❌|✅|
 |Easy to use / Easy UI|✅|❌|✅|
 |Simple Mod installation|✅|⚠️ xdelta mods require manual setup (GMLoader mods are easier)|✅|

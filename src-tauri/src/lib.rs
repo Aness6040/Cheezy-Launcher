@@ -397,10 +397,6 @@ fn normalize_path(path: &str) -> PathBuf {
     return PathBuf::from(path);
 }
 
-fn get_xdelta_path() -> Result<PathBuf, String> {
-    Ok(exe_dir()?.join("deps").join("xdelta3.exe"))
-}
-
 fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -543,11 +539,9 @@ fn apply_xdelta_patch(
     output: String,
     overwrite: bool,
 ) -> Result<(), String> {
-    let xdelta = get_xdelta_path()?;
     let source_path = normalize_path(&source);
     let patch_path = normalize_path(&patch);
     let output_path = normalize_path(&output);
-    let settings = get_settings()?;
 
     if !source_path.exists() {
         return Err("Source file not found".into());
@@ -555,36 +549,17 @@ fn apply_xdelta_patch(
     if !patch_path.exists() {
         return Err("Patch file not found".into());
     }
-
-    let mut cmd = build_command(&xdelta, &settings);
-
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
+    if !overwrite && output_path.exists() {
+        return Err("Output file already exists".into());
     }
-    cmd.arg("-d");
-    if overwrite {
-        cmd.arg("-f");
-    }
-    cmd.arg("-s")
-        .arg(&source_path)
-        .arg(&patch_path)
-        .arg(&output_path);
 
-    let status = cmd
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("xdelta launch error: {}", e))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "xdelta error, code: {}",
-            status.code().unwrap_or(-1)
-        ))
-    }
+    let source_bytes = fs::read(&source_path).map_err(|e| format!("Failed to read source: {}", e))?;
+    let patch_bytes = fs::read(&patch_path).map_err(|e| format!("Failed to read patch: {}", e))?;
+
+    let decoded = xdelta3::decode(&patch_bytes, &source_bytes)
+        .ok_or_else(|| "xdelta patch failed".to_string())?;
+
+    fs::write(&output_path, &decoded).map_err(|e| format!("Failed to write output: {}", e))
 }
 
 #[tauri::command]
@@ -602,7 +577,6 @@ fn prepare_overwrite(
     let log = |msg: &str| {
         let _ = app_handle.emit("prepare-log", msg.to_string());
     };
-    let settings = get_settings()?;
     let over = Path::new(&overwrite_path);
     let game_path = Path::new(&game_dir);
 
@@ -611,8 +585,6 @@ fn prepare_overwrite(
         fs::remove_dir_all(over).map_err(|e| e.to_string())?;
     }
     fs::create_dir_all(over).map_err(|e| e.to_string())?;
-
-    let xdelta = get_xdelta_path()?;
 
     log("Listing game files...");
     let game_files: Vec<PathBuf> = walkdir::WalkDir::new(game_path)
@@ -926,29 +898,12 @@ fn prepare_overwrite(
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
 
-                let mut cmd = build_command(&xdelta, &settings);
-
-                #[cfg(windows)]
-                {
-                    cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
-                }
-
-                let status = cmd
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdin(Stdio::null())
-                    .args(["-d", "-f", "-s"])
-                    .arg(source)
-                    .arg(&prepatch_path)
-                    .arg(&dest)
-                    .status()
-                    .map_err(|e| e.to_string())?;
-
-                if status.success() {
-                    log("  ✓ Prepatch applied -> data.win");
-                } else {
-                    return Err(format!("Prepatch failed: {}", prepatch));
-                }
+                let source_bytes = fs::read(source).map_err(|e| format!("Failed to read prepatch source: {}", e))?;
+                let patch_bytes = fs::read(&prepatch_path).map_err(|e| format!("Failed to read prepatch: {}", e))?;
+                let decoded = xdelta3::decode(&patch_bytes, &source_bytes)
+                    .ok_or_else(|| format!("Prepatch failed: {}", prepatch))?;
+                fs::write(&dest, &decoded).map_err(|e| format!("Failed to write prepatch output: {}", e))?;
+                log("  ✓ Prepatch applied -> data.win");
             }
         }
 
@@ -1022,7 +977,6 @@ fn prepare_overwrite(
             }
 
             let dest = over.join(&intended_dest_rel);
-            let tmp = over.join(format!("{}_patch_tmp", file_name));
             let mut patched = false;
 
             let mut smart_candidates = Vec::new();
@@ -1054,40 +1008,22 @@ fn prepare_overwrite(
                 }
             }
 
+            let patch_bytes = fs::read(entry.path()).map_err(|e| format!("Failed to read patch: {}", e))?;
             for source in &smart_candidates {
-                let mut cmd = build_command(&xdelta, &settings);
-                #[cfg(windows)]
-                {
-                    cmd.creation_flags(0x08000000 | 0x00000008 | 0x00000200);
-                }
+                let source_bytes = match fs::read(source) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
 
-                let status = cmd
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .stdin(Stdio::null())
-                    .args(["-d", "-f", "-s"])
-                    .arg(source)
-                    .arg(entry.path())
-                    .arg(&tmp)
-                    .status();
-
-                if let Ok(st) = status {
-                    if st.success() {
-                        if let Some(p) = dest.parent() {
-                            let _ = fs::create_dir_all(p);
-                        }
-                        if dest.exists() {
-                            let _ = fs::remove_file(&dest);
-                        }
-                        if fs::rename(&tmp, &dest).is_ok() {
-                            log(&format!("    ✓ Patched -> {}", intended_dest_rel.display()));
-                            patched = true;
-                            break;
-                        }
+                if let Some(decoded) = xdelta3::decode(&patch_bytes, &source_bytes) {
+                    if let Some(p) = dest.parent() {
+                        let _ = fs::create_dir_all(p);
                     }
-                }
-                if tmp.exists() {
-                    let _ = fs::remove_file(&tmp);
+                    if fs::write(&dest, &decoded).is_ok() {
+                        log(&format!("    ✓ Patched -> {}", intended_dest_rel.display()));
+                        patched = true;
+                        break;
+                    }
                 }
             }
 

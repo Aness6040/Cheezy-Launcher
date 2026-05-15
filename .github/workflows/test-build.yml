@@ -50,6 +50,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install LLVM/Clang (Windows)
+        if: runner.os == 'Windows'
+        uses: llvm/install-llvm-action@v1
+        with:
+          version: latest
+
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -78,6 +84,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             libfuse2 \
+            clang \
+            llvm-dev \
+            lld \
             fuse \
             desktop-file-utils \
             appstream
@@ -190,7 +199,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path staging-portable
           New-Item -ItemType Directory -Force -Path staging-portable/deps
           Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
-          if (Test-Path "src-tauri/deps/xdelta3.exe") { Copy-Item "src-tauri/deps/xdelta3.exe" staging-portable/deps }
           if (Test-Path "src-tauri/deps/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/deps/cheezylauncher-steamhelper.exe" staging-portable/deps }
           @"
           Cheezy Launcher - Portable Build
