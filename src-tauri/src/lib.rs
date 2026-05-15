@@ -425,10 +425,9 @@ fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
         let flag = if src.is_dir() { "/J" } else { "/H" };
-        let dst_str = format!("\"{}\"", dst.display());
-        let src_str = format!("\"{}\"", src.display());
         if std::process::Command::new("cmd.exe")
-            .args(["/c", "mklink", flag, &dst_str, &src_str])
+            .args(["/c", "mklink", flag, &dst.as_os_str(), &src.as_os_str()])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)

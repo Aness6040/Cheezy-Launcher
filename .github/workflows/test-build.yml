@@ -192,6 +192,30 @@ jobs:
           Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
           if (Test-Path "src-tauri/deps/xdelta3.exe") { Copy-Item "src-tauri/deps/xdelta3.exe" staging-portable/deps }
           if (Test-Path "src-tauri/deps/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/deps/cheezylauncher-steamhelper.exe" staging-portable/deps }
+          @"
+          Cheezy Launcher - Portable Build
+          =================================
+
+          This is a portable build of Cheezy Launcher.
+
+          ⚠ NOTE: Tauri does NOT officially support portable/portable mode.
+            - The auto-updater may NOT work in this build.
+            - Some features may behave differently.
+
+          ✅ PREREQUISITES:
+            - WebView2 Runtime (required by Tauri):
+              If you don't have it, download and install from:
+              https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+              (On Windows 11, WebView2 is included by default.)
+
+          📦 USAGE:
+            1. Extract all files to a folder (e.g. C:\CheezyLauncher)
+            2. Run cheezy-launcher.exe
+            3. (Optional) Run as Administrator for better performance with symlinks
+
+          ❓ NEED HELP?
+            https://github.com/Aness6040/Cheezy-Launcher/issues
+          "@ | Out-File -FilePath staging-portable/README.txt -Encoding utf8
           Compress-Archive -Path "staging-portable/*" -DestinationPath "Cheezy.Launcher_windows-portable.zip"
 
 
