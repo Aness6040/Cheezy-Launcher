@@ -43,6 +43,13 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Configure Windows symlinks
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          git config --global core.symlinks true
+          echo "MSYS=winsymlinks:nativestrict" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -126,6 +133,22 @@ jobs:
           echo "APPIMAGE_BUNDLE_TOOLS_DIR=$TOOLS_DIR" >> $GITHUB_ENV
           echo "AppImage tools ready at: $TOOLS_DIR"
           ls -la "$TOOLS_DIR"
+
+      - name: Install Steam API library for AppImage
+        if: runner.os == 'Linux'
+        run: |
+          # Pre-build steamhelper to trigger steamworks-sdk-redist download
+          cargo build --release --bin cheezylauncher-steamhelper --manifest-path src-tauri/Cargo.toml
+          # Copy libsteam_api.so to /usr/lib/ so linuxdeploy can bundle it
+          STEAM_API_LIB=$(find src-tauri/target/release/build -name 'libsteam_api.so' 2>/dev/null | head -1)
+          if [ -n "$STEAM_API_LIB" ]; then
+            sudo cp "$STEAM_API_LIB" /usr/lib/
+            sudo ldconfig
+            echo "Installed libsteam_api.so from $STEAM_API_LIB"
+          else
+            echo "ERROR: Could not find libsteam_api.so in build artifacts"
+            exit 1
+          fi
 
       - name: Build Tauri App
         run: pnpm tauri build --verbose
