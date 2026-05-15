@@ -58,7 +58,7 @@ jobs:
 
       - name: Install LLVM/Clang (Windows)
         if: runner.os == 'Windows'
-        uses: llvm/install-llvm-action@v1
+        uses: KyleMayes/install-llvm-action@v2
         with:
           version: latest
 
