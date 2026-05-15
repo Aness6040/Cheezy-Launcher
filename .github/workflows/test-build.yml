@@ -84,8 +84,76 @@ jobs:
           echo "TAURI_SKIP_DEVTOOLS=true" >> $GITHUB_ENV
           echo "USE_SYSTEM_FUSE=1" >> $GITHUB_ENV
 
+      - name: Setup AppImage tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eux
+
+          TOOLS_DIR="$HOME/.tauri/appimage-tools"
+          mkdir -p "$TOOLS_DIR"
+
+          # Download linuxdeploy (pinned to a specific release for reproducibility)
+          LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          LINUXDEPLOY_PATH="$TOOLS_DIR/linuxdeploy-x86_64.AppImage"
+
+          if [ ! -f "$LINUXDEPLOY_PATH" ]; then
+            echo "Downloading linuxdeploy..."
+            wget -q --show-progress "$LINUXDEPLOY_URL" -O "$LINUXDEPLOY_PATH"
+          fi
+          chmod +x "$LINUXDEPLOY_PATH"
+
+          # Download linuxdeploy-plugin-gtk
+          GTK_PLUGIN_URL="https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
+          GTK_PLUGIN_PATH="$TOOLS_DIR/linuxdeploy-plugin-gtk.sh"
+
+          if [ ! -f "$GTK_PLUGIN_PATH" ]; then
+            echo "Downloading linuxdeploy-plugin-gtk..."
+            wget -q --show-progress "$GTK_PLUGIN_URL" -O "$GTK_PLUGIN_PATH"
+          fi
+          chmod +x "$GTK_PLUGIN_PATH"
+
+          # Verify linuxdeploy works with APPIMAGE_EXTRACT_AND_RUN
+          echo "Verifying linuxdeploy..."
+          APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY_PATH" --list-plugins 2>&1 || echo "WARNING: linuxdeploy verification failed (may still work during build)"
+
+          echo "APPIMAGE_BUNDLE_TOOLS_DIR=$TOOLS_DIR" >> $GITHUB_ENV
+          echo "AppImage tools ready at: $TOOLS_DIR"
+          ls -la "$TOOLS_DIR"
+
+      - name: Debug build environment
+        shell: bash
+        run: |
+          echo "=== System Info ==="
+          uname -a 2>/dev/null || ver
+          echo ""
+          echo "=== Symlink support ==="
+          ln -s /tmp/test_symlink /tmp/test_symlink_target 2>&1 && echo "SYMLINK: supported" || echo "SYMLINK: not supported"
+          rm -f /tmp/test_symlink /tmp/test_symlink_target 2>/dev/null
+          echo ""
+          echo "=== Steamhelper ==="
+          echo "Source files:"
+          ls -la src-tauri/src/bin/ 2>/dev/null || echo "No src-tauri/src/bin/"
+          ls -la src-tauri/src/*steam* 2>/dev/null || ls -la src-tauri/src/*helper* 2>/dev/null || echo "No steamhelper source found"
+          echo "Target deps dir:"
+          ls -la src-tauri/deps/ 2>/dev/null || echo "No src-tauri/deps/ (will be created during build)"
+          echo "Cargo bin target (if prebuilt):"
+          ls -la src-tauri/target/release/cheezylauncher-steamhelper* 2>/dev/null || echo "Not prebuilt (will build during pnpm tauri build)"
+          echo ""
+          echo "=== Env Vars ==="
+          echo "APPIMAGE_EXTRACT_AND_RUN=${APPIMAGE_EXTRACT_AND_RUN:-not set}"
+          echo "NO_STRIP=${NO_STRIP:-not set}"
+          echo "ARCH=${ARCH:-not set}"
+          echo "APPIMAGE_BUNDLE_TOOLS_DIR=${APPIMAGE_BUNDLE_TOOLS_DIR:-not set}"
+          echo "USE_SYSTEM_FUSE=${USE_SYSTEM_FUSE:-not set}"
+          echo "RUST_LOG=${RUST_LOG:-not set}"
+          echo ""
+          echo "=== Enabling verbose debug for build ==="
+          echo "RUST_LOG=debug" >> $GITHUB_ENV
+          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
+
       - name: Build Tauri App
-        run: pnpm tauri build
+        run: pnpm tauri build --verbose
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           APPIMAGE_EXTRACT_AND_RUN: 1
