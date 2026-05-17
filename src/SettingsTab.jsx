@@ -30,6 +30,12 @@ function SettingsTab({ onSave, applyTheme }) {
   const [gmloaderDownloading, setGmloaderDownloading] = useState(false);
   const [gmloaderProgress, setGmloaderProgress] = useState(null);
 
+  // Verify integrity
+  const [verifyRunning, setVerifyRunning] = useState(false);
+  const [verifyLogs, setVerifyLogs] = useState([]);
+  const [verifyProgress, setVerifyProgress] = useState(null);
+  const [verifyCurrentFile, setVerifyCurrentFile] = useState(null);
+
   useEffect(() => {
     setOs(platform());
     invoke("get_settings")
@@ -48,14 +54,30 @@ function SettingsTab({ onSave, applyTheme }) {
       .then(setGmloaderInstalled)
       .catch(console.error);
 
-    const unlisten = listen("gmloader-download-progress", (event) => {
+    const unlistenGm = listen("gmloader-download-progress", (event) => {
       try {
         const data = JSON.parse(event.payload);
         setGmloaderProgress(data);
       } catch {}
     });
+    const unlistenLog = listen("verify-log", (event) => {
+      setVerifyLogs((prev) => [...prev, event.payload]);
+    });
+    const unlistenPct = listen("verify-pct", (event) => {
+      setVerifyProgress(event.payload);
+    });
+    const unlistenFile = listen("verify-file", (event) => {
+      setVerifyCurrentFile(event.payload);
+    });
+    const unlistenDone = listen("verify-done", (event) => {
+      setVerifyCurrentFile(null);
+    });
     return () => {
-      unlisten.then((f) => f());
+      unlistenGm.then((f) => f());
+      unlistenLog.then((f) => f());
+      unlistenPct.then((f) => f());
+      unlistenFile.then((f) => f());
+      unlistenDone.then((f) => f());
     };
   }, []);
 
@@ -422,6 +444,64 @@ function SettingsTab({ onSave, applyTheme }) {
                 ? "Update/Change GMLoader Version"
                 : "Download GMLoader"}
           </button>
+        </div>
+      </div>
+
+      <div className="collapse collapse-arrow border border-base-300 bg-base-100 rounded-box">
+        <input type="checkbox" />
+        <div className="collapse-title text-sm font-semibold">
+          Technical Settings
+        </div>
+        <div className="collapse-content flex flex-col gap-3">
+          <button
+            className="btn btn-sm btn-outline w-max"
+            disabled={verifyRunning}
+            onClick={async () => {
+              setVerifyRunning(true);
+              setVerifyLogs([]);
+              setVerifyProgress(null);
+              setVerifyCurrentFile(null);
+              try {
+                await invoke("verify_integrity_files");
+                setVerifyLogs((prev) => [...prev, "Verification complete!"]);
+              } catch (e) {
+                setVerifyLogs((prev) => [...prev, `Verification failed: ${e}`]);
+              } finally {
+                setVerifyRunning(false);
+              }
+            }}
+          >
+            {verifyRunning ? "Verifying..." : "Verify Integrity of Game Files"}
+          </button>
+          <p className="text-xs text-base-content/60">
+            Checks game files against Steam manifests and repairs corrupted or missing files.
+          </p>
+          {verifyRunning && (
+            <div className="flex flex-col gap-1">
+              <progress
+                className="progress progress-primary w-full"
+                value={verifyProgress || 0}
+                max="100"
+              />
+              {verifyCurrentFile && (
+                <span className="text-xs text-base-content/60 truncate">
+                  {verifyCurrentFile}
+                </span>
+              )}
+            </div>
+          )}
+          {verifyLogs.length > 0 && (
+            <details className="bg-base-200 rounded-box p-2" open={verifyRunning}>
+              <summary className="text-xs font-mono cursor-pointer text-base-content/70 select-none">
+                {verifyLogs[verifyLogs.length - 1]}
+              </summary>
+              <div className="flex flex-col gap-0.5 mt-2 max-h-40 overflow-y-auto text-xs font-mono">
+                {verifyLogs.map((msg, i) => (
+                  <span key={i} className="text-base-content/70">{msg}</span>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       </div>
 

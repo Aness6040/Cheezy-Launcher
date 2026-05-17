@@ -40,6 +40,11 @@ unrar = "0.5.8"
 tauri-plugin-drpc = "0.1.6"
 tauri-plugin-os = "2"
 steamworks = "0.13.1"
+steamroom = "0.1.0"
+steamroom-client = "0.1.0"
+prost = "0.14"
+regex = "1"
+sha2 = "0.10"
 
 [build]
 incremental = true

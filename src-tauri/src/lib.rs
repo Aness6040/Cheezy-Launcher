@@ -11,6 +11,9 @@ use tauri::{Manager, State};
 use tauri_plugin_single_instance::init as single_instance;
 use unrar::Archive;
 
+mod steam;
+use steam::verify_integrity_files;
+
 #[derive(Default)]
 struct AppState {
     operation_running: bool,
@@ -2112,6 +2115,8 @@ pub fn run() {
             // gmloader
             download_gmloader,
             gmloader_installed,
+            // verification
+            verify_integrity_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
