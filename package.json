@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:steamhelper": "cargo build --release --bin cheezylauncher-steamhelper --manifest-path src-tauri/Cargo.toml && node -e \"require('fs').cpSync('src-tauri/target/release/cheezylauncher-steamhelper'+(process.platform==='win32'?'.exe':''),'src-tauri/deps/cheezylauncher-steamhelper'+(process.platform==='win32'?'.exe':''))\""
+    "build:steamhelper": "cargo build --release --bin cheezylauncher-steamhelper --manifest-path src-tauri/Cargo.toml "
   },
   "dependencies": {
     "@babel/standalone": "^7.29.2",

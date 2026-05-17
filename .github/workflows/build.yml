@@ -171,9 +171,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path staging-portable/deps
           Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
-          if (Test-Path "src-tauri/deps/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/deps/cheezylauncher-steamhelper.exe" staging-portable/deps }
+          if (Test-Path "src-tauri/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/cheezylauncher-steamhelper.exe" staging-portable }
           @"
           Cheezy Launcher - Portable Build
           =================================

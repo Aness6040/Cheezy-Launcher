@@ -151,8 +151,8 @@ jobs:
           echo "Source files:"
           ls -la src-tauri/src/bin/ 2>/dev/null || echo "No src-tauri/src/bin/"
           ls -la src-tauri/src/*steam* 2>/dev/null || ls -la src-tauri/src/*helper* 2>/dev/null || echo "No steamhelper source found"
-          echo "Target deps dir:"
-          ls -la src-tauri/deps/ 2>/dev/null || echo "No src-tauri/deps/ (will be created during build)"
+          echo "Steamhelper binary (if prebuilt):"
+          ls -la src-tauri/cheezylauncher-steamhelper* 2>/dev/null || echo "Not prebuilt (will build during pnpm tauri build)"
           echo "Cargo bin target (if prebuilt):"
           ls -la src-tauri/target/release/cheezylauncher-steamhelper* 2>/dev/null || echo "Not prebuilt (will build during pnpm tauri build)"
           echo ""
@@ -197,9 +197,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path staging-portable
-          New-Item -ItemType Directory -Force -Path staging-portable/deps
           Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
-          if (Test-Path "src-tauri/deps/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/deps/cheezylauncher-steamhelper.exe" staging-portable/deps }
+          if (Test-Path "src-tauri/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/cheezylauncher-steamhelper.exe" staging-portable }
           @"
           Cheezy Launcher - Portable Build
           =================================

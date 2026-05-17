@@ -1210,7 +1210,7 @@ fn mount_vfs(
 
         link_or_copy(&data_win_dest, &vfs_data_win_dest)?;
 
-        let gmloader_src = exe_dir()?.join("deps").join("GMLoader");
+        let gmloader_src = exe_dir()?.join("GMLoader");
 
         if gmloader_src.exists() {
             for entry in walkdir::WalkDir::new(&gmloader_src) {
@@ -1347,7 +1347,7 @@ async fn launch_game(
         };
 
         let helper_path = exe_dir().ok().and_then(|d| {
-            let path = d.join("deps").join(&helper_name);
+            let path = d.join(&helper_name);
             if path.exists() { Some(path) } else { None }
         });
 
@@ -1935,7 +1935,7 @@ async fn download_gmloader(
 ) -> Result<(), String> {
     use std::io::Cursor;
 
-    let dest_dir = exe_dir()?.join("deps").join("GMLoader");
+    let dest_dir = exe_dir()?.join("GMLoader");
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
 
     let client = reqwest::Client::builder()
@@ -2042,7 +2042,7 @@ async fn download_gmloader(
 
 #[tauri::command]
 fn gmloader_installed() -> Result<bool, String> {
-    let dir = exe_dir()?.join("deps").join("GMLoader");
+    let dir = exe_dir()?.join("GMLoader");
     if !dir.exists() {
         return Ok(false);
     }
