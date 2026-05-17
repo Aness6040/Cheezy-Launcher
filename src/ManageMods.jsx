@@ -187,7 +187,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
     addLog(chalk.yellow("Preparing overwrite..."));
 
     try {
-      const vfsRoot = await invoke("get_main_dir", { folderName: "vfs_root" });
+      const vfsRoot = await invoke("get_main_dir", { folderName: "modfolder" });
       const settingsData = await invoke("get_settings");
       let effectiveSettings = { ...settingsData };
       if (selectedMod) {
@@ -217,7 +217,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
       }
       if (mode === "over") setOperationRunning(false);
       if (mode !== "over") {
-        addLog(chalk.yellow("Mounting VFS..."));
+        addLog(chalk.yellow("Setting up mod folder..."));
 
         await invoke("mount_vfs", {
           gameDir: effectiveSettings.game_dir,
@@ -302,9 +302,9 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
           const exeName = effectiveSettings.exe_name || "PizzaTower.exe";
           if (event.payload === exeName) {
             waitEnd();
-            addLog(chalk.yellow("Game closed, unmounting VFS..."));
+            addLog(chalk.yellow("Game closed, cleaning mod folder..."));
             await invoke("unmount_vfs", { vfsRoot });
-            addLog(chalk.green("VFS unmounted"));
+            addLog(chalk.green("Mod folder cleaned"));
             setOperationRunning(false);
           }
         });
@@ -374,51 +374,66 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
       </div>
 
       <div className="flex gap-3 mb-3 flex-shrink-0 items-center">
-        <div
-          className={`join ${operationRunning ? "opacity-50 pointer-events-none" : ""}`}
-        >
+        <div className={`join`}>
           <button
-            onClick={handleRunFile}
-            disabled={operationRunning}
-            className="btn btn-primary join-item"
+            onClick={async () => {
+              if (operationRunning) {
+                const confirmed = await window.confirm(
+                  "Are you sure you want to stop?",
+                );
+                if (confirmed) {
+                  try {
+                    await invoke("force_stop_game");
+                    setOperationRunning(false);
+                  } catch (e) {
+                    addLog(`Error stopping: ${e}`);
+                  }
+                }
+                return;
+              }
+              handleRunFile();
+            }}
+            disabled={!operationRunning && false}
+            className={`btn join-item ${operationRunning ? "btn-error" : "btn-primary"}`}
           >
-            {operationRunning ? "Running..." : "Launch"}
+            {operationRunning ? "Stop?" : "Launch"}
           </button>
-          <div className="dropdown dropdown-bottom dropdown-center">
-            <button
-              tabIndex={0}
-              className="btn btn-primary join-item px-2"
-              disabled={operationRunning}
-            >
-              ▾
-            </button>
-            <ul
-              tabIndex={0}
-              className="dropdown-content menu bg-base-100 rounded-box shadow-lg z-50 w-40 mt-1"
-            >
-              <li className={!useMods ? "opacity-50 pointer-events-none" : ""}>
-                <a
-                  onClick={() => {
-                    if (!useMods) return;
-                    document.activeElement.blur();
-                    handleRunFile("over");
-                  }}
-                >
-                  Overwrite Only
-                </a>
-              </li>
-              <li>
-                <a
-                  onClick={() => {
-                    document.activeElement.blur();
-                    handleRunFile("launch");
-                  }}
-                >
-                  Launch Only
-                </a>
-              </li>
-            </ul>
-          </div>
+          {!operationRunning && (
+            <div className="dropdown dropdown-bottom dropdown-center">
+              <button
+                tabIndex={0}
+                className="btn btn-primary join-item px-2"
+              >
+                ▾
+              </button>
+              <ul
+                tabIndex={0}
+                className="dropdown-content menu bg-base-100 rounded-box shadow-lg z-50 w-40 mt-1"
+              >
+                <li className={!useMods ? "opacity-50 pointer-events-none" : ""}>
+                  <a
+                    onClick={() => {
+                      if (!useMods) return;
+                      document.activeElement.blur();
+                      handleRunFile("over");
+                    }}
+                  >
+                    Overwrite Only
+                  </a>
+                </li>
+                <li>
+                  <a
+                    onClick={() => {
+                      document.activeElement.blur();
+                      handleRunFile("launch");
+                    }}
+                  >
+                    Launch Only
+                  </a>
+                </li>
+              </ul>
+            </div>
+          )}
         </div>
         <label
           className={`flex items-center gap-2 cursor-pointer ${

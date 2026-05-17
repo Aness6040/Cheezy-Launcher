@@ -434,15 +434,29 @@ function SettingsTab({ onSave, applyTheme }) {
           )}
 
           <button
-            className="btn btn-sm btn-outline w-max"
-            onClick={handleFetchGmloaderFiles}
-            disabled={gmloaderFetching || gmloaderDownloading}
+            className={`btn btn-sm w-max ${gmloaderDownloading ? "btn-error" : "btn-outline"}`}
+            onClick={async () => {
+              if (gmloaderDownloading) {
+                const ok = await window.confirm(
+                  "Are you sure you want to cancel the GMLoader download?",
+                );
+                if (ok) {
+                  setGmloaderDownloading(false);
+                  setGmloaderProgress(null);
+                }
+                return;
+              }
+              handleFetchGmloaderFiles();
+            }}
+            disabled={gmloaderFetching}
           >
             {gmloaderFetching
               ? "Loading..."
-              : gmloaderInstalled
-                ? "Update/Change GMLoader Version"
-                : "Download GMLoader"}
+              : gmloaderDownloading
+                ? "Cancel download?"
+                : gmloaderInstalled
+                  ? "Update/Change GMLoader Version"
+                  : "Download GMLoader"}
           </button>
         </div>
       </div>
@@ -454,9 +468,18 @@ function SettingsTab({ onSave, applyTheme }) {
         </div>
         <div className="collapse-content flex flex-col gap-3">
           <button
-            className="btn btn-sm btn-outline w-max"
-            disabled={verifyRunning}
+            className={`btn btn-sm w-max ${verifyRunning ? "btn-error" : "btn-outline"}`}
             onClick={async () => {
+              if (verifyRunning) {
+                const ok = await window.confirm(
+                  "Are you sure you want to cancel file verification?",
+                );
+                if (ok) {
+                  setVerifyRunning(false);
+                  setVerifyLogs((prev) => [...prev, "Verification cancelled by user"]);
+                }
+                return;
+              }
               setVerifyRunning(true);
               setVerifyLogs([]);
               setVerifyProgress(null);
@@ -471,7 +494,7 @@ function SettingsTab({ onSave, applyTheme }) {
               }
             }}
           >
-            {verifyRunning ? "Verifying..." : "Verify Integrity of Game Files"}
+            {verifyRunning ? "Cancel verification?" : "Verify Integrity of Game Files (Steam)"}
           </button>
           <p className="text-xs text-base-content/60">
             Checks game files against Steam manifests and repairs corrupted or missing files.

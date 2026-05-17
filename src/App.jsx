@@ -465,7 +465,7 @@ function App() {
             height: `calc(100vh - ${activeTab === "tab1" || activeTab === "tab2" ? "270px" : "90px"})`,
           }}
         >
-          {activeTab === "tab1" && (
+          <div style={{ display: activeTab === "tab1" ? "" : "none", height: "100%" }}>
             <ManageMods
               modsDir={modsDir}
               overwiteDir={overwiteDir}
@@ -473,45 +473,47 @@ function App() {
               logs={logs}
               onDropInstall={(p) => handleDropInstall(p, modsDir)}
             />
-          )}
-          {activeTab === "tab2" && (
+          </div>
+          <div style={{ display: activeTab === "tab2" ? "" : "none", height: "100%" }}>
             <ManageGMLoader
               modsDir={modsDir}
               addLog={addLog}
               onDropInstall={(p) => handleDropInstall(p, getGmlDir(modsDir))}
             />
-          )}
-          {activeTab === "tab3" && (
+          </div>
+          <div style={{ display: activeTab === "tab3" ? "" : "none", height: "100%" }}>
             <BrowseMods
               modsDir={modsDir}
               addLog={addLog}
               onInstall={handleGBInstall}
             />
-          )}
-          {activeTab === "plugins" && (
+          </div>
+          <div style={{ display: activeTab === "plugins" ? "" : "none", height: "100%" }}>
             <PluginsTab
               onPluginsChange={handlePluginsChange}
               onReload={reloadPlugins}
             />
-          )}
-          {activeTab.startsWith("plugin:") &&
-            (() => {
-              const [, pluginId, tabId] = activeTab.split(":");
-              return (
+          </div>
+          {(() => {
+            if (!activeTab.startsWith("plugin:")) return null;
+            const [, pluginId, tabId] = activeTab.split(":");
+            return (
+              <div style={{ height: "100%" }}>
                 <PluginHost
                   key={activeTab}
                   registered={pluginRegistryRef.current[pluginId]?.registered}
                   tabId={tabId}
                   pluginAPI={pluginAPIProxy}
                 />
-              );
-            })()}
-          {activeTab === "settings" && (
+              </div>
+            );
+          })()}
+          <div style={{ display: activeTab === "settings" ? "" : "none", height: "100%" }}>
             <SettingsTab
               onSave={(s) => setSettings(s)}
               applyTheme={applyTheme}
             />
-          )}
+          </div>
         </div>
         {(activeTab === "tab1" || activeTab === "tab2") && (
           <div className="mt-auto">
@@ -535,6 +537,23 @@ function App() {
               {downloadProgress.percent}% ({downloadProgress.downloaded_mb} MB /{" "}
               {downloadProgress.total_mb} MB)
             </span>
+            <button
+              className="btn btn-sm btn-outline btn-error"
+              onClick={async () => {
+                const confirmed = await confirm(
+                  "Are you sure you want to cancel this download?",
+                  {
+                    title: "Cancel Download",
+                    kind: "warning",
+                  },
+                );
+                if (confirmed) {
+                  setDownloadProgress(null);
+                }
+              }}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
