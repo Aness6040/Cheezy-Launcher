@@ -167,6 +167,16 @@ jobs:
           NO_STRIP: 1
           ARCH: x86_64
 
+      - name: Copy PKGBUILD for Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DEB="src-tauri/target/release/bundle/deb/cheezy-launcher_${VERSION}_amd64.deb"
+          SHA=$(sha256sum "$DEB" | cut -d' ' -f1)
+          sed "s/__VERSION__/${VERSION}/;s/__SHA256__/${SHA}/" .github/PKGBUILD > src-tauri/target/release/bundle/PKGBUILD
+          cp .github/cheezy-launcher.install src-tauri/target/release/bundle/
+
       - name: Package Windows portable
         if: runner.os == 'Windows'
         shell: pwsh
@@ -256,6 +266,7 @@ jobs:
             | Linux | `*_amd64.AppImage` | **Portable** — no installation, just run (AppImage) |
             | Linux | `*_amd64.deb` | Debian/Ubuntu package |
             | Linux | `*.x86_64.rpm` | Fedora/RHEL package |
+            | Linux | `PKGBUILD` + `cheezy-launcher.install` | Arch Linux (pacman -U ./cheezy-launcher-*.pkg.tar.zst) |
 
             > 💡 On Windows, the **portable zip** needs no installation, just unzip and run.
 
@@ -271,3 +282,5 @@ jobs:
             **/*.AppImage
             **/*.deb
             **/*.rpm
+            **/PKGBUILD
+            **/*.install

@@ -192,6 +192,21 @@ jobs:
           NO_STRIP: 1
           ARCH: x86_64
 
+      - name: Copy PKGBUILD for Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -z "$VERSION" ] && VERSION="0.0.2"
+          DEB="src-tauri/target/release/bundle/deb/cheezy-launcher_${VERSION}_amd64.deb"
+          if [ -f "$DEB" ]; then
+            SHA=$(sha256sum "$DEB" | cut -d' ' -f1)
+          else
+            SHA="SKIP"
+          fi
+          sed "s/__VERSION__/${VERSION}/;s/__SHA256__/${SHA}/" .github/PKGBUILD > src-tauri/target/release/bundle/PKGBUILD
+          cp .github/cheezy-launcher.install src-tauri/target/release/bundle/
+
       - name: Package Windows portable
         if: runner.os == 'Windows'
         shell: pwsh
