@@ -554,6 +554,7 @@ fn detect_steam_username(steam_dir: &Path) -> Option<String> {
 fn decrypt_steam_token(steam_dir: &Path, account_name: &str) -> Option<String> {
     #[cfg(windows)]
     {
+        let _ = &steam_dir;
         let local_vdf = std::env::var("LOCALAPPDATA").ok()?.to_string() + "\\Steam\\local.vdf";
         let encrypted_hex = read_connect_cache_blob(Path::new(&local_vdf))?;
         let encrypted = hex_decode(&encrypted_hex)?;

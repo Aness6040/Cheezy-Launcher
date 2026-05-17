@@ -2071,6 +2071,8 @@ pub fn run() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 app.deep_link().register_all()?;
             }
+            #[cfg(not(any(target_os = "linux", all(debug_assertions, windows))))]
+            let _ = &app;
             Ok(())
         })
         .plugin(single_instance(|app, _argv, _cwd| {
