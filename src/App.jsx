@@ -87,9 +87,16 @@ function App() {
     game_dir: "",
     discord_rpc: undefined,
   });
+  const [gmloaderInstalled, setGmloaderInstalled] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", "light");
+  }, []);
+
+  useEffect(() => {
+    invoke("gmloader_installed")
+      .then(setGmloaderInstalled)
+      .catch(() => setGmloaderInstalled(false));
   }, []);
 
   const addLog = (message) => {
@@ -472,6 +479,7 @@ function App() {
               addLog={addLog}
               logs={logs}
               onDropInstall={(p) => handleDropInstall(p, modsDir)}
+              gmloaderInstalled={gmloaderInstalled}
             />
           </div>
           <div style={{ display: activeTab === "tab2" ? "" : "none", height: "100%" }}>
@@ -512,6 +520,8 @@ function App() {
             <SettingsTab
               onSave={(s) => setSettings(s)}
               applyTheme={applyTheme}
+              gmloaderInstalled={gmloaderInstalled}
+              onGmloaderInstalledChange={setGmloaderInstalled}
             />
           </div>
         </div>

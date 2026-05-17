@@ -10,7 +10,7 @@ import { platform } from "@tauri-apps/plugin-os";
 
 const GMLOADER_TOOL_ID = 18118;
 
-function SettingsTab({ onSave, applyTheme }) {
+function SettingsTab({ onSave, applyTheme, gmloaderInstalled, onGmloaderInstalledChange }) {
   const [settings, setSettings] = useState({
     theme: "",
     launch_args: [],
@@ -24,7 +24,6 @@ function SettingsTab({ onSave, applyTheme }) {
   const [os, setOs] = useState(null);
 
   // GMLoader
-  const [gmloaderInstalled, setGmloaderInstalled] = useState(false);
   const [gmloaderFiles, setGmloaderFiles] = useState(null);
   const [gmloaderFetching, setGmloaderFetching] = useState(false);
   const [gmloaderDownloading, setGmloaderDownloading] = useState(false);
@@ -50,10 +49,6 @@ function SettingsTab({ onSave, applyTheme }) {
     invoke("list_files_by_ext", { folder: "themes", ext: "css" })
       .then(setCustomThemes)
       .catch(console.error);
-    invoke("gmloader_installed")
-      .then(setGmloaderInstalled)
-      .catch(console.error);
-
     const unlistenGm = listen("gmloader-download-progress", (event) => {
       try {
         const data = JSON.parse(event.payload);
@@ -107,7 +102,7 @@ function SettingsTab({ onSave, applyTheme }) {
         fileName: file._sFile,
         downloadUrl: file._sDownloadUrl,
       });
-      setGmloaderInstalled(true);
+      onGmloaderInstalledChange(true);
       alert("GMLoader successfully installed!");
     } catch (e) {
       alert(`Error during download: ${e}`);

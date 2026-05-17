@@ -110,7 +110,7 @@ function ModCard({
   );
 }
 
-function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
+function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloaderInstalled }) {
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -119,7 +119,6 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
   const [contextMenu, setContextMenu] = useState(null);
 
   const [isDragOver, setIsDragOver] = useState(false);
-  const [gmloaderInstalled, setGmloaderInstalled] = useState(false);
 
   useEffect(() => {
     const unlistenEnter = listen("tauri://drag-enter", () =>
@@ -142,12 +141,6 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
       unlistenDrop.then((f) => f());
     };
   }, [modsDir]);
-
-  useEffect(() => {
-    invoke("gmloader_installed")
-      .then(setGmloaderInstalled)
-      .catch(console.error);
-  }, []);
 
   const fetchMods = () => {
     if (!modsDir) return;
@@ -324,25 +317,16 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall }) {
   const useMods = selectedMod || gmloaderEnabled;
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const installed = await invoke("gmloader_installed");
-        setGmloaderInstalled(installed);
-
-        const settings = await invoke("get_settings");
-
-        setGmloaderEnabled(
-          installed ? (settings.gmloader_enabled ?? false) : false,
-        );
-      } catch (e) {
-        console.error(e);
-        setGmloaderInstalled(false);
-        setGmloaderEnabled(false);
-      }
-    };
-
-    load();
-  }, []);
+    if (!gmloaderInstalled) {
+      setGmloaderEnabled(false);
+      return;
+    }
+    invoke("get_settings")
+      .then((settings) =>
+        setGmloaderEnabled(settings.gmloader_enabled ?? false),
+      )
+      .catch(() => setGmloaderEnabled(false));
+  }, [gmloaderInstalled]);
 
   const handleToggleGML = async (e) => {
     const val = e.target.checked;
