@@ -551,7 +551,7 @@ fn detect_steam_username(steam_dir: &Path) -> Option<String> {
     None
 }
 
-fn decrypt_steam_token(_steam_dir: &Path, account_name: &str) -> Option<String> {
+fn decrypt_steam_token(steam_dir: &Path, account_name: &str) -> Option<String> {
     #[cfg(windows)]
     {
         let local_vdf = std::env::var("LOCALAPPDATA").ok()?.to_string() + "\\Steam\\local.vdf";
