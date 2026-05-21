@@ -26,8 +26,8 @@ Check the [Wiki](https://github.com/Aness6040/Cheezy-Launcher/wiki) for more inf
 
 |Features|[Pizza Oven](https://github.com/TekkaGB/PizzaOven)|[Mod Organizer 2 (Senjay Edition)](https://github.com/Senjay-id/modorganizer2-senjay)|Cheezy Launcher|
 |-|-|-|-|
-|No admin rights or developer mode required|✅|✅|⚠️ Depends on the device and drive, it may disable VFS|
-|VFS support|❌(Everything is overwritten and backed-up for mods)|✅ (USVFS)|⚠️ Yes but limited (depends on admin/dev permission, symlink)|
+|No admin rights or developer mode required|✅|✅|⚠️ Depends on the device and drive, may fall back to file copies instead of symlinks|
+|VFS support|❌|✅ (USVFS)|⚠️ Limited, symlink not guaranteed|
 |Native linux support|❌|❌|✅ (You still need wine/proton to make the game working)|
 |Auto Updates|✅|❌|✅|
 |Easy to use / Easy UI|✅|❌|✅|
