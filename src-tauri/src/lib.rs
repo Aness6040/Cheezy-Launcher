@@ -37,7 +37,11 @@ struct Settings {
     #[serde(default)]
     gmloader_exe: String,
     #[serde(default)]
+    gmloader_exe_def: String,
+    #[serde(default)]
     data_target: String,
+    #[serde(default)]
+    game_def: String,
     #[serde(default)]
     prepatch: String,
     #[serde(default)]
@@ -169,7 +173,9 @@ fn get_settings() -> Result<Settings, String> {
         game_dir,
         game_data_dir,
         exe_name: "PizzaTower.exe".to_string(),
+        game_def: "PizzaTower.exe".to_string(),
         gmloader_exe: "GMLoader.exe".to_string(),
+        gmloader_exe_def: "GMLoader.exe".to_string(),
         data_target: "data.win".to_string(),
         prepatch: String::new(),
         steam_api: true,
@@ -1182,6 +1188,32 @@ fn mount_vfs(
             }
         }
 
+        if settings.exe_name != settings.game_def {
+            let src_exe = game.join(&settings.exe_name);
+            if src_exe.exists() {
+                let backup_exe = backup_dir.join(&settings.exe_name);
+                if let Some(parent) = backup_exe.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::copy(&src_exe, &backup_exe).map_err(|e| e.to_string())?;
+                let _ = fs::remove_file(&src_exe);
+                fs::copy(&backup_exe, game.join(&settings.game_def)).map_err(|e| e.to_string())?;
+            }
+        }
+
+        if settings.gmloader_exe != settings.gmloader_exe_def {
+            let src_gml = game.join(&settings.gmloader_exe);
+            if src_gml.exists() {
+                let backup_gml = backup_dir.join(&settings.gmloader_exe);
+                if let Some(parent) = backup_gml.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::copy(&src_gml, &backup_gml).map_err(|e| e.to_string())?;
+                let _ = fs::remove_file(&src_gml);
+                fs::copy(&backup_gml, game.join(&settings.gmloader_exe_def)).map_err(|e| e.to_string())?;
+            }
+        }
+
         fs::write(
             game.join("steam_appid.txt"),
             if steam_api { "2231450" } else { "0" },
@@ -1376,6 +1408,15 @@ fn unmount_vfs(vfs_root: String, launch_type: String, game_dir: String) -> Resul
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
                 fs::copy(entry.path(), &game_restore).map_err(|e| e.to_string())?;
+            }
+
+            if let Ok(settings) = get_settings() {
+                if settings.exe_name != settings.game_def {
+                    let _ = fs::remove_file(game.join(&settings.game_def));
+                }
+                if settings.gmloader_exe != settings.gmloader_exe_def {
+                    let _ = fs::remove_file(game.join(&settings.gmloader_exe_def));
+                }
             }
 
             let _ = fs::remove_dir_all(&backup_dir);
