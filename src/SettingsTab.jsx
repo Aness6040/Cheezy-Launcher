@@ -462,6 +462,25 @@ function SettingsTab({ onSave, applyTheme, gmloaderInstalled, onGmloaderInstalle
           Technical Settings
         </div>
         <div className="collapse-content flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="text-sm font-semibold tooltip tooltip-right tooltip-warning tooltip-small"
+              data-tip="When enabled, mods are applied directly into the game folder (and backed up originals are restored when you stop playing). This lets you launch the game from Steam normally. Disable this if you use the classic mod folder system instead."
+            >
+              Reverse Mounting
+            </div>
+            <input
+              type="checkbox"
+              className="toggle toggle-primary"
+              checked={settings.reverse_mounting ?? false}
+              onChange={(e) =>
+                setSettings((prev) => ({ ...prev, reverse_mounting: e.target.checked }))
+              }
+            />
+          </div>
+
+          <div className="divider text-xs text-base-content/40 my-0.5">Steam</div>
+
           <button
             className={`btn btn-sm w-max ${verifyRunning ? "btn-error" : "btn-outline"}`}
             onClick={async () => {
@@ -571,13 +590,15 @@ function SettingsTab({ onSave, applyTheme, gmloaderInstalled, onGmloaderInstalle
         </div>
       )}
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="btn btn-primary w-max"
-      >
-        {saving ? "Saving..." : "Save Settings"}
-      </button>
+      <div className="sticky bottom-0 bg-base-200 pt-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="btn btn-primary w-max"
+        >
+          {saving ? "Saving..." : "Save Settings"}
+        </button>
+      </div>
     </div>
   );
 }

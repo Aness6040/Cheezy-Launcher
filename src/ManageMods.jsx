@@ -210,7 +210,27 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloade
       }
       if (mode === "over") setOperationRunning(false);
       if (mode !== "over") {
-        addLog(chalk.yellow("Setting up mod folder..."));
+        const launchType = effectiveSettings.reverse_mounting ? "reverse" : "normal";
+
+        if (launchType === "reverse") {
+          const hasBackup = await invoke("check_backup_exists", { gameDir: effectiveSettings.game_dir });
+          if (hasBackup) {
+            const restore = window.confirm(
+              "A backup from a previous Reverse Mounting session was found.\n\nDo you want to restore original files before deploying new mods? This prevents backing up already-modded files.\n\nClick OK to restore first (recommended), or Cancel to overwrite without restoring."
+            );
+            if (restore) {
+              addLog(chalk.yellow("Restoring original files from backup before deploying..."));
+              await invoke("unmount_vfs", {
+                vfsRoot,
+                launchType: "reverse",
+                gameDir: effectiveSettings.game_dir,
+              });
+              addLog(chalk.green("Original files restored"));
+            }
+          }
+        }
+
+        addLog(chalk.yellow(effectiveSettings.reverse_mounting ? "Deploying mods to game directory..." : "Setting up mod folder..."));
 
         await invoke("mount_vfs", {
           gameDir: effectiveSettings.game_dir,
@@ -219,6 +239,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloade
           steamApi: effectiveSettings.steam_api ?? false,
           gmloaderEnabled:
             effectiveSettings.gmloader_enabled ?? gmloaderEnabled,
+          launchType,
         });
 
         const GMLOADER_EXE = "GMLoader.exe";
@@ -255,6 +276,7 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloade
             vfsRoot,
             exeName: effectiveSettings.gmloader_exe || GMLOADER_EXE,
             launchArgs: [],
+            launchType: effectiveSettings.reverse_mounting ? "reverse" : "normal",
           });
 
           addLog(chalk.green("Executing GMLoader process..."));
@@ -283,10 +305,13 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloade
       }
 
       async function launchPizzaTower() {
+        const launchType = effectiveSettings.reverse_mounting ? "reverse" : "normal";
+
         await invoke("launch_game", {
           vfsRoot,
           exeName: effectiveSettings.exe_name || "PizzaTower.exe",
           launchArgs: effectiveSettings.launch_args || [],
+          launchType,
         });
 
         addLog(chalk.green("Game is running"));
@@ -295,9 +320,23 @@ function ManageMods({ modsDir, overwiteDir, addLog, logs, onDropInstall, gmloade
           const exeName = effectiveSettings.exe_name || "PizzaTower.exe";
           if (event.payload === exeName) {
             waitEnd();
-            addLog(chalk.yellow("Game closed, cleaning mod folder..."));
-            await invoke("unmount_vfs", { vfsRoot });
-            addLog(chalk.green("Mod folder cleaned"));
+            if (launchType === "reverse") {
+              addLog(chalk.yellow("Game closed, restoring original files from backup..."));
+              await invoke("unmount_vfs", {
+                vfsRoot,
+                launchType: "reverse",
+                gameDir: effectiveSettings.game_dir,
+              });
+              addLog(chalk.green("Original files restored"));
+            } else {
+              addLog(chalk.yellow("Game closed, cleaning mod folder..."));
+              await invoke("unmount_vfs", {
+                vfsRoot,
+                launchType: "normal",
+                gameDir: "",
+              });
+              addLog(chalk.green("Mod folder cleaned"));
+            }
             setOperationRunning(false);
           }
         });

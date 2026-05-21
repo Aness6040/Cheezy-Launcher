@@ -49,6 +49,8 @@ struct Settings {
     #[serde(default)]
     discord_rpc: bool,
     #[serde(default)]
+    reverse_mounting: bool,
+    #[serde(default)]
     wine_mode: String, // "wine", "proton", "proton_experimental", "custom"
     #[serde(default)]
     wine_path: String, // custom path if wine_mode is"custom"
@@ -174,6 +176,7 @@ fn get_settings() -> Result<Settings, String> {
         gmloader_enabled: false,
         gmloader_auto_restart: default_gmloader_auto_restart(),
         discord_rpc: true,
+        reverse_mounting: true,
         wine_mode: default_wine_mode(),
         wine_path: String::new(),
         wine_prefix: String::new(),
@@ -1118,11 +1121,75 @@ fn mount_vfs(
     vfs_root: String,
     steam_api: bool,
     gmloader_enabled: bool,
+    launch_type: String,
 ) -> Result<(), String> {
     let settings = get_settings()?;
     let game = Path::new(&game_dir);
     let over = Path::new(&overwrite_path);
     let root = Path::new(&vfs_root);
+
+    if launch_type == "reverse" {
+        if !game.exists() {
+            return Err("Game directory not found".to_string());
+        }
+
+        let backup_dir = game.join("backup");
+
+        use std::collections::HashSet;
+        let overwrite_files: HashSet<PathBuf> = if over.exists() {
+            walkdir::WalkDir::new(over)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.path().strip_prefix(over).ok().map(|r| r.to_path_buf()))
+                .collect()
+        } else {
+            HashSet::new()
+        };
+
+        for rel in &overwrite_files {
+            let game_dest = game.join(rel);
+            let backup_src = backup_dir.join(rel);
+
+            if let Some(parent) = backup_src.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+
+            if game_dest.exists() {
+                fs::copy(&game_dest, &backup_src).map_err(|e| e.to_string())?;
+                let _ = fs::remove_file(&game_dest);
+            }
+
+            let over_src = over.join(rel);
+            if let Some(parent) = game_dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::copy(&over_src, &game_dest).map_err(|e| e.to_string())?;
+        }
+
+        if !steam_api {
+            let steam_dlls = ["steam_api64.dll", "steam_api.dll", "steamworks_x64.dll", "steamworks.dll"];
+            for dll in &steam_dlls {
+                let dll_path = game.join(dll);
+                if dll_path.exists() {
+                    let backup_dll = backup_dir.join(dll);
+                    if let Some(parent) = backup_dll.parent() {
+                        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    }
+                    fs::copy(&dll_path, &backup_dll).map_err(|e| e.to_string())?;
+                    let _ = fs::remove_file(&dll_path);
+                }
+            }
+        }
+
+        fs::write(
+            game.join("steam_appid.txt"),
+            if steam_api { "2231450" } else { "0" },
+        )
+        .map_err(|e| e.to_string())?;
+
+        return Ok(());
+    }
 
     if root.exists() {
         fs::remove_dir_all(root).map_err(|e| e.to_string())?;
@@ -1288,8 +1355,38 @@ fn mount_vfs(
 }
 
 #[tauri::command]
-fn unmount_vfs(vfs_root: String) -> Result<(), String> {
+fn unmount_vfs(vfs_root: String, launch_type: String, game_dir: String) -> Result<(), String> {
     let root = Path::new(&vfs_root);
+
+    if launch_type == "reverse" {
+        let game = Path::new(&game_dir);
+        let backup_dir = game.join("backup");
+
+        if backup_dir.exists() {
+            for entry in walkdir::WalkDir::new(&backup_dir) {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let rel = entry.path().strip_prefix(&backup_dir).map_err(|e| e.to_string())?;
+                let game_restore = game.join(rel);
+
+                if entry.path().is_dir() {
+                    continue;
+                }
+
+                if let Some(parent) = game_restore.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                fs::copy(entry.path(), &game_restore).map_err(|e| e.to_string())?;
+            }
+
+            let _ = fs::remove_dir_all(&backup_dir);
+        }
+
+        if root.exists() {
+            fs::remove_dir_all(root).map_err(|e| e.to_string())?;
+        }
+
+        return Ok(());
+    }
 
     if root.exists() {
         let log_src = root.join("GMLoader.log");
@@ -1320,6 +1417,7 @@ async fn launch_game(
     vfs_root: String,
     exe_name: String,
     launch_args: Vec<String>,
+    launch_type: String,
     state: State<'_, SharedState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -1331,6 +1429,86 @@ async fn launch_game(
         s.operation_running = true;
     }
     let settings = get_settings()?;
+
+    if launch_type == "reverse" {
+        // Launch exe directly from game_dir (trackable), steam_appid.txt handles Steam overlay
+        let game_dir = Path::new(&settings.game_dir);
+        let exe_path = game_dir.join(&exe_name);
+        if !exe_path.exists() {
+            let mut s = state.lock().map_err(|e| e.to_string())?;
+            s.operation_running = false;
+            return Err(format!("Exe not found: {:?}", exe_path));
+        }
+
+        let mut child = {
+            let mut cmd = build_command(&exe_path, &settings);
+            cmd.current_dir(game_dir)
+                .args(&launch_args)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .stdin(std::process::Stdio::null());
+
+            #[cfg(windows)]
+            cmd.creation_flags(0x08000000);
+
+            cmd.spawn().map_err(|e| {
+                let mut s = state.lock().unwrap();
+                s.operation_running = false;
+                e.to_string()
+            })?
+        };
+
+        let pid = child.id();
+        {
+            let mut s = state.lock().map_err(|e| e.to_string())?;
+            s.game_pid = Some(pid);
+        }
+
+        if let Some(stdout) = child.stdout.take() {
+            let app_handle_out = app_handle.clone();
+            let exe_name_out = exe_name.clone();
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = app_handle_out.emit(
+                            "process-output",
+                            serde_json::json!({ "exe": exe_name_out, "line": line, "stream": "stdout" }),
+                        );
+                    }
+                }
+            });
+        }
+
+        if let Some(stderr) = child.stderr.take() {
+            let app_handle_err = app_handle.clone();
+            let exe_name_err = exe_name.clone();
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = app_handle_err.emit(
+                            "process-output",
+                            serde_json::json!({ "exe": exe_name_err, "line": line, "stream": "stderr" }),
+                        );
+                    }
+                }
+            });
+        }
+
+        let state_clone = Arc::clone(&state);
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            let mut s = state_clone.lock().unwrap();
+            s.operation_running = false;
+            s.game_pid = None;
+            let _ = app_handle.emit("process-ended", &exe_name);
+        });
+
+        return Ok(());
+    }
 
     let exe_path = Path::new(&vfs_root).join(&exe_name);
     if !exe_path.exists() {
@@ -1363,7 +1541,6 @@ async fn launch_game(
 
             #[cfg(not(windows))]
             {
-                // Sur Linux : libsteam_api.so natif depuis le dossier Steam linux64
                 if let Ok(steam_dir) = steamlocate::SteamDir::locate() {
                     let lib_path = steam_dir.path().join("linux64");
                     if lib_path.exists() {
@@ -2054,6 +2231,17 @@ fn gmloader_installed() -> Result<bool, String> {
     Ok(has_file)
 }
 
+#[tauri::command]
+fn check_backup_exists(game_dir: String) -> bool {
+    let backup = Path::new(&game_dir).join("backup");
+    if !backup.exists() {
+        return false;
+    }
+    fs::read_dir(&backup)
+        .map(|mut entries| entries.any(|e| e.is_ok()))
+        .unwrap_or(false)
+}
+
 pub fn run() {
     let shared_state: SharedState = Arc::new(Mutex::new(AppState::default()));
     let sys_state: SysState = Arc::new(Mutex::new(System::new()));
@@ -2119,6 +2307,7 @@ pub fn run() {
             gmloader_installed,
             // verification
             verify_integrity_files,
+            check_backup_exists,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
