@@ -32,15 +32,15 @@ struct Settings {
     game_dir: String,
     #[serde(default)]
     game_data_dir: String,
-    #[serde(default)]
+    #[serde(default = "default_exe_name")]
     exe_name: String,
-    #[serde(default)]
+    #[serde(default = "default_gmloader_exe")]
     gmloader_exe: String,
-    #[serde(default)]
+    #[serde(default = "default_gmloader_exe")]
     gmloader_exe_def: String,
     #[serde(default)]
     data_target: String,
-    #[serde(default)]
+    #[serde(default = "default_exe_name")]
     game_def: String,
     #[serde(default)]
     prepatch: String,
@@ -57,10 +57,13 @@ struct Settings {
     #[serde(default)]
     wine_mode: String, // "wine", "proton", "proton_experimental", "custom"
     #[serde(default)]
-    wine_path: String, // custom path if wine_mode is"custom"
+    wine_path: String, // custom path if wine_mode is "custom"
     #[serde(default)]
     wine_prefix: String, // custom WINEPREFIX (optional)
 }
+
+fn default_exe_name() -> String { "PizzaTower.exe".to_string() }
+fn default_gmloader_exe() -> String { "GMLoader.exe".to_string() }
 
 fn detect_archive_type(bytes: &[u8]) -> &'static str {
     if bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]) || bytes.starts_with(&[0x50, 0x4B, 0x05, 0x06])
@@ -122,6 +125,23 @@ fn get_settings() -> Result<Settings, String> {
                 settings.game_data_dir = path;
                 changed = true;
             }
+        }
+
+        if settings.exe_name.is_empty() {
+            settings.exe_name = default_exe_name();
+            changed = true;
+        }
+        if settings.game_def.is_empty() {
+            settings.game_def = default_exe_name();
+            changed = true;
+        }
+        if settings.gmloader_exe.is_empty() {
+            settings.gmloader_exe = default_gmloader_exe();
+            changed = true;
+        }
+        if settings.gmloader_exe_def.is_empty() {
+            settings.gmloader_exe_def = default_gmloader_exe();
+            changed = true;
         }
 
         if changed {
@@ -407,6 +427,75 @@ fn normalize_path(path: &str) -> PathBuf {
     return PathBuf::from(path.replace("/", "\\"));
     #[cfg(not(windows))]
     return PathBuf::from(path);
+}
+
+fn backup_file_rel(src: &Path, backup_dir: &Path, rel: &Path) -> Result<(), String> {
+    if !src.exists() {
+        return Ok(());
+    }
+    let backup_dest = backup_dir.join(rel);
+    if let Some(parent) = backup_dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::copy(src, &backup_dest).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(src);
+    Ok(())
+}
+
+fn copy_to_backup_rel(src: &Path, backup_dir: &Path, rel: &Path) -> Result<(), String> {
+    if !src.exists() {
+        return Ok(());
+    }
+    if backup_dir.join(rel).exists() {
+        return Ok(());
+    }
+    let backup_dest = backup_dir.join(rel);
+    if let Some(parent) = backup_dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::copy(src, &backup_dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn rename_in_game(src_name: &str, dst_name: &str, game: &Path, backup_dir: &Path) -> Result<(), String> {
+    if src_name == dst_name || src_name.is_empty() || dst_name.is_empty() {
+        return Ok(());
+    }
+    backup_file_rel(&game.join(src_name), backup_dir, Path::new(src_name))?;
+    let backup_src = backup_dir.join(src_name);
+    if backup_src.exists() {
+        if let Some(parent) = game.join(dst_name).parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::copy(&backup_src, game.join(dst_name)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn process_gmloader_ini(template_path: &Path, data_win_path: &Path, auto_restart: bool) -> Result<String, String> {
+    let mut content = fs::read_to_string(template_path).map_err(|e| e.to_string())?;
+    if data_win_path.exists() {
+        let bytes = fs::read(data_win_path).map_err(|e| e.to_string())?;
+        let hash = xxhash_rust::xxh3::xxh3_64(&bytes);
+        content = content
+            .lines()
+            .map(|line| {
+                if line.starts_with("SupportedDataHash=") {
+                    format!("SupportedDataHash={}", hash)
+                } else if line.starts_with("CheckHash=") {
+                    "CheckHash=false".to_string()
+                } else if line.starts_with("AutoGameStart=") {
+                    format!("AutoGameStart={}", if auto_restart { "true" } else { "false" })
+                } else if line.starts_with("GameData=") {
+                    "GameData=data.win".to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n");
+    }
+    Ok(content)
 }
 
 fn link_or_copy(src: &Path, dst: &Path) -> Result<(), String> {
@@ -1154,63 +1243,55 @@ fn mount_vfs(
         };
 
         for rel in &overwrite_files {
-            let game_dest = game.join(rel);
-            let backup_src = backup_dir.join(rel);
-
-            if let Some(parent) = backup_src.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-
-            if game_dest.exists() {
-                fs::copy(&game_dest, &backup_src).map_err(|e| e.to_string())?;
-                let _ = fs::remove_file(&game_dest);
-            }
-
+            backup_file_rel(&game.join(rel), &backup_dir, rel)?;
             let over_src = over.join(rel);
-            if let Some(parent) = game_dest.parent() {
+            if let Some(parent) = game.join(rel).parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            fs::copy(&over_src, &game_dest).map_err(|e| e.to_string())?;
+            fs::copy(&over_src, game.join(rel)).map_err(|e| e.to_string())?;
         }
 
         if !steam_api {
-            let steam_dlls = ["steam_api64.dll", "steam_api.dll", "steamworks_x64.dll", "steamworks.dll"];
-            for dll in &steam_dlls {
-                let dll_path = game.join(dll);
-                if dll_path.exists() {
-                    let backup_dll = backup_dir.join(dll);
-                    if let Some(parent) = backup_dll.parent() {
-                        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            for dll in ["steam_api64.dll", "steam_api.dll", "steamworks_x64.dll", "steamworks.dll"] {
+                backup_file_rel(&game.join(dll), &backup_dir, Path::new(dll))?;
+            }
+        }
+
+        if settings.exe_name != settings.game_def && !settings.exe_name.is_empty() && !settings.game_def.is_empty() {
+            rename_in_game(&settings.exe_name, &settings.game_def, game, &backup_dir)?;
+        }
+
+        if settings.gmloader_exe != settings.gmloader_exe_def && !settings.gmloader_exe.is_empty() && !settings.gmloader_exe_def.is_empty() {
+            rename_in_game(&settings.gmloader_exe, &settings.gmloader_exe_def, game, &backup_dir)?;
+        }
+
+        if gmloader_enabled {
+            copy_to_backup_rel(&game.join("data.win"), &backup_dir, Path::new("data.win"))?;
+
+            let gmloader_src = exe_dir()?.join("GMLoader");
+            if gmloader_src.exists() {
+                for entry in walkdir::WalkDir::new(&gmloader_src) {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let rel = entry.path().strip_prefix(&gmloader_src).map_err(|e| e.to_string())?;
+                    let game_dest = game.join(rel);
+
+                    if entry.path().is_dir() {
+                        fs::create_dir_all(&game_dest).map_err(|e| e.to_string())?;
+                        continue;
                     }
-                    fs::copy(&dll_path, &backup_dll).map_err(|e| e.to_string())?;
-                    let _ = fs::remove_file(&dll_path);
-                }
-            }
-        }
 
-        if settings.exe_name != settings.game_def {
-            let src_exe = game.join(&settings.exe_name);
-            if src_exe.exists() {
-                let backup_exe = backup_dir.join(&settings.exe_name);
-                if let Some(parent) = backup_exe.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                fs::copy(&src_exe, &backup_exe).map_err(|e| e.to_string())?;
-                let _ = fs::remove_file(&src_exe);
-                fs::copy(&backup_exe, game.join(&settings.game_def)).map_err(|e| e.to_string())?;
-            }
-        }
+                    backup_file_rel(&game_dest, &backup_dir, rel)?;
 
-        if settings.gmloader_exe != settings.gmloader_exe_def {
-            let src_gml = game.join(&settings.gmloader_exe);
-            if src_gml.exists() {
-                let backup_gml = backup_dir.join(&settings.gmloader_exe);
-                if let Some(parent) = backup_gml.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    if rel == Path::new("GMLoader.ini") {
+                        let ini_content = process_gmloader_ini(entry.path(), &game.join("data.win"), settings.gmloader_auto_restart)?;
+                        fs::write(&game_dest, &ini_content).map_err(|e| e.to_string())?;
+                    } else {
+                        if let Some(parent) = game_dest.parent() {
+                            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                        }
+                        link_or_copy(entry.path(), &game_dest)?;
+                    }
                 }
-                fs::copy(&src_gml, &backup_gml).map_err(|e| e.to_string())?;
-                let _ = fs::remove_file(&src_gml);
-                fs::copy(&backup_gml, game.join(&settings.gmloader_exe_def)).map_err(|e| e.to_string())?;
             }
         }
 
@@ -1328,33 +1409,7 @@ fn mount_vfs(
                         }
                     };
 
-                    let mut content =
-                        fs::read_to_string(entry.path()).map_err(|e| e.to_string())?;
-                    if data_win_path.exists() {
-                        let bytes = fs::read(&data_win_path).map_err(|e| e.to_string())?;
-                        let hash = xxhash_rust::xxh3::xxh3_64(&bytes);
-                        let auto_restart = settings.gmloader_auto_restart;
-                        content = content
-                            .lines()
-                            .map(|line| {
-                                if line.starts_with("SupportedDataHash=") {
-                                    format!("SupportedDataHash={}", hash)
-                                } else if line.starts_with("CheckHash=") {
-                                    "CheckHash=false".to_string()
-                                } else if line.starts_with("AutoGameStart=") {
-                                    format!(
-                                        "AutoGameStart={}",
-                                        if auto_restart { "true" } else { "false" }
-                                    )
-                                } else if line.starts_with("GameData=") {
-                                    "GameData=data.win".to_string()
-                                } else {
-                                    line.to_string()
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\r\n");
-                    }
+                    let content = process_gmloader_ini(entry.path(), &data_win_path, settings.gmloader_auto_restart)?;
 
                     let overwrite_ini_path = over.join("GMLoader.ini");
                     fs::write(&overwrite_ini_path, &content).map_err(|e| e.to_string())?;
@@ -1411,11 +1466,31 @@ fn unmount_vfs(vfs_root: String, launch_type: String, game_dir: String) -> Resul
             }
 
             if let Ok(settings) = get_settings() {
-                if settings.exe_name != settings.game_def {
+                if settings.exe_name != settings.game_def && !settings.exe_name.is_empty() && !settings.game_def.is_empty() {
                     let _ = fs::remove_file(game.join(&settings.game_def));
                 }
-                if settings.gmloader_exe != settings.gmloader_exe_def {
+                if settings.gmloader_exe != settings.gmloader_exe_def && !settings.gmloader_exe.is_empty() && !settings.gmloader_exe_def.is_empty() {
                     let _ = fs::remove_file(game.join(&settings.gmloader_exe_def));
+                }
+            }
+
+            // Remove gmloader files that were newly added (no backup existed)
+            if let Ok(exe_dir) = exe_dir() {
+                let gmloader_src = exe_dir.join("GMLoader");
+                if gmloader_src.exists() {
+                    for entry in walkdir::WalkDir::new(&gmloader_src) {
+                        let entry = entry.map_err(|e| e.to_string())?;
+                        if entry.path().is_dir() {
+                            continue;
+                        }
+                        if let Ok(rel) = entry.path().strip_prefix(&gmloader_src) {
+                            let game_file = game.join(rel);
+                            let backup_file = backup_dir.join(rel);
+                            if game_file.exists() && !backup_file.exists() {
+                                let _ = fs::remove_file(&game_file);
+                            }
+                        }
+                    }
                 }
             }
 
