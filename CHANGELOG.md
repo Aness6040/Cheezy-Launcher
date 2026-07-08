@@ -1,5 +1,8 @@
-* 🧩 Feature - Linux Support (still has few differences due to Wine)
-* 🛠️ Fix - Added System Theme (like Window) with custom theme support
-* 🧩 Feature - Progress bar for download in Browse Mods
-* 🛠️ Fix - Now overwrite works how it was intended (like PO)
 
+- 🧩 Feature - GMLoader reverse mode support
+- 🧩 Feature - Launch types
+- 🧩 Feature - PKGBUILD support (Arch Linux)
+- 🧩 Feature - Native xdelta patcher (no longer need xdelta3.exe)
+- 🧩 Feature - Steam integrity file integration
+- 🛠️ Fix - AppImage fixes and Windows symlink support
+- 🛠️ Fix - Various fixes and QoL
