@@ -280,7 +280,7 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
   const handleViewMod = async (mod) => {
     try {
       const res = await fetch(
-        `https://gamebanana.com/apiv11/Mod/${mod._idRow}?_csvProperties=_sName,_sDescription,_aPreviewMedia,_aSubmitter,_aRootCategory,_tsDateModified,_nDownloadCount,_nLikeCount`,
+        `https://gamebanana.com/apiv11/Mod/${mod._idRow}?_csvProperties=_sName,_sDescription,_sText,_aPreviewMedia,_aSubmitter,_aRootCategory,_tsDateModified,_nDownloadCount,_nLikeCount`,
       );
       const data = await res.json();
 
@@ -291,7 +291,8 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
 
       setViewModal({
         name: data._sName,
-        description: data._sDescription,
+        descriptionFull: data._sText || "",
+        description: data._sDescription || "",
         author: data._aSubmitter?._sName,
         avi: data._aSubmitter?._sAvatarUrl,
         category: data._aRootCategory?._sName,
@@ -301,7 +302,7 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
         likes: data._nLikeCount,
         date: data._tsDateModified,
         url: mod.url,
-        raw: mod, // pour install direct
+        raw: mod,
       });
     } catch (e) {
       addLog(`Error loading mod details: ${e}`);
@@ -564,49 +565,67 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
                   </div>
                 )}
                 <div>
-                  <h2 className="font-bold text-lg mb-2">Description</h2>
                   <div
                     className="prose max-w-none text-sm"
-                    dangerouslySetInnerHTML={{ __html: viewModal.description }}
+                    dangerouslySetInnerHTML={{
+                      __html: viewModal.descriptionFull,
+                    }}
+                    onClick={(e) => {
+                      const link = e.target.closest("a");
+                      if (link?.href) {
+                        e.preventDefault();
+                        openUrl(link.href);
+                      }
+                    }}
                   />
                 </div>
               </div>
-              <div className="w-64 border-l border-base-300 p-4 flex flex-col gap-4">
-                <div className="flex items-center gap-3">
-                  {viewModal.avi && (
-                    <img
-                      src={viewModal.avi}
-                      className="w-10 h-10 rounded-full"
-                    />
+              <div className="w-64 border-l border-base-300 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                  <div className="flex items-center gap-3">
+                    {viewModal.avi && (
+                      <img
+                        src={viewModal.avi}
+                        className="w-10 h-10 rounded-full"
+                      />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium">{viewModal.author}</p>
+                      <p className="text-xs text-base-content/50">Creator</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Downloads</span>
+                      <span>{viewModal.downloads}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Likes</span>
+                      <span>{viewModal.likes}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Updated</span>
+                      <span>
+                        {new Date(viewModal.date * 1000).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {viewModal.catIcon && (
+                      <img src={viewModal.catIcon} className="w-5 h-5" />
+                    )}
+                    <span>{viewModal.category}</span>
+                  </div>
+                  {viewModal.description && (
+                    <div className="border-t border-base-300 pt-3">
+                      <p className="text-xs text-base-content/60 mb-1">Description</p>
+                      <p className="text-xs line-clamp-6">
+                        {viewModal.description}
+                      </p>
+                    </div>
                   )}
-                  <div>
-                    <p className="text-sm font-medium">{viewModal.author}</p>
-                    <p className="text-xs text-base-content/50">Creator</p>
-                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Downloads</span>
-                    <span>{viewModal.downloads}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Likes</span>
-                    <span>{viewModal.likes}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Updated</span>
-                    <span>
-                      {new Date(viewModal.date * 1000).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {viewModal.catIcon && (
-                    <img src={viewModal.catIcon} className="w-5 h-5" />
-                  )}
-                  <span>{viewModal.category}</span>
-                </div>
-                <div className="mt-auto flex flex-col gap-2">
+                <div className="flex-shrink-0 border-t border-base-300 p-4 flex flex-col gap-2">
                   <button
                     rel="noopener noreferrer"
                     className="btn btn-sm btn-outline"
@@ -614,7 +633,6 @@ function BrowseMods({ modsDir, addLog, onInstall }) {
                   >
                     View Page
                   </button>
-
                   <button
                     className="btn btn-sm btn-primary"
                     onClick={() => {
