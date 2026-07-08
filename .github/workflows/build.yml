@@ -187,6 +187,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path staging-portable
           Copy-Item "src-tauri/target/release/cheezy-launcher.exe" staging-portable
           if (Test-Path "src-tauri/cheezylauncher-steamhelper.exe") { Copy-Item "src-tauri/cheezylauncher-steamhelper.exe" staging-portable }
           @"
