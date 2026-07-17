@@ -257,8 +257,8 @@ function App() {
       for (const url of urls) {
         const match = url.match(/mmdl\/(\d+),([^,]+),(\d+)/);
         if (match) {
-          const [, fileId, , modId] = match;
-          handleGBInstall(modId, null, fileId);
+          const [, fileId, section, modId] = match;
+          handleGBInstall(modId, null, fileId, null, section);
         }
       }
     }).then((fn) => {
@@ -269,8 +269,7 @@ function App() {
     };
   }, [modsDir]);
 
-  const handleGBInstall = async (modId, modName, fileId, prefetched = null) => {
-    addLog(`Trying to install ${modName}...`);
+  const handleGBInstall = async (modId, modName, fileId, prefetched = null, section = "Mod") => {
     try {
       let files, description, rootCatId, rootCatParentId, data;
 
@@ -283,7 +282,7 @@ function App() {
         };
       } else {
         const res = await fetch(
-          `https://gamebanana.com/apiv11/Mod/${modId}?_csvProperties=_aFiles,_sDescription,_aRootCategory,_aSubmitter,_aPreviewMedia,_sName`,
+          `https://gamebanana.com/apiv11/${section}/${modId}?_csvProperties=_aFiles,_sDescription,_aRootCategory,_aSubmitter,_aPreviewMedia,_sName`,
         );
         data = await res.json();
         modName = data._sName || modName || modId;
@@ -297,6 +296,7 @@ function App() {
       const GMLOADER_ID = 36921;
 
       modName = sanitizeName(String(modName));
+      addLog(`Trying to install ${modName}...`);
 
       const fileList = Array.isArray(files) ? files : Object.values(files);
       const file =
