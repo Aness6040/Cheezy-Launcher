@@ -67,12 +67,19 @@ function SettingsTab({ onSave, applyTheme, gmloaderInstalled, onGmloaderInstalle
     const unlistenDone = listen("verify-done", (event) => {
       setVerifyCurrentFile(null);
     });
+    const onFocus = () => {
+      invoke("list_files_by_ext", { folder: "prepatches", ext: "xdelta" })
+        .then(setPrepatches)
+        .catch(console.error);
+    };
+    window.addEventListener("focus", onFocus);
     return () => {
       unlistenGm.then((f) => f());
       unlistenLog.then((f) => f());
       unlistenPct.then((f) => f());
       unlistenFile.then((f) => f());
       unlistenDone.then((f) => f());
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
