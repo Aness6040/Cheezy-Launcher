@@ -695,21 +695,55 @@ fn prepare_overwrite(
         .map(|e| e.path().to_path_buf())
         .collect();
 
-    use std::collections::HashMap;
-    let game_files_by_name: HashMap<String, &PathBuf> = game_files
-        .iter()
-        .map(|p| {
-            (
-                p.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase(),
-                p,
-            )
-        })
-        .collect();
-
     log(&format!("{} game files found", game_files.len()));
+
+    if !prepatch.is_empty() {
+        log("Finding prepatch...");
+        let prepatch_path = exe_dir()?
+            .join("prepatches")
+            .join(format!("{}.xdelta", prepatch));
+        if prepatch_path.exists() {
+            log(&format!("Applying prepatch: {}", prepatch));
+
+            let dest = over.join(&data_target);
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+
+            let patch_bytes = fs::read(&prepatch_path).map_err(|e| format!("Failed to read prepatch: {}", e))?;
+
+            let mut prepatch_applied = false;
+
+            let mut prepatch_candidates: Vec<PathBuf> = Vec::new();
+
+            let data_po = game_path.join(format!("{}.po", data_target));
+            if data_po.exists() {
+                prepatch_candidates.push(data_po);
+            }
+            let data_game = game_path.join(&data_target);
+            if data_game.exists() {
+                prepatch_candidates.push(data_game);
+            }
+
+            for source in &prepatch_candidates {
+                let source_bytes = match fs::read(source) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+
+                if let Some(decoded) = xdelta3::decode(&patch_bytes, &source_bytes) {
+                    fs::write(&dest, &decoded).map_err(|e| format!("Failed to write prepatch output: {}", e))?;
+                    log(&format!("  ✓ Prepatch applied -> {} (source: {})", data_target, source.display()));
+                    prepatch_applied = true;
+                    break;
+                }
+            }
+
+            if !prepatch_applied {
+                return Err(format!("Prepatch failed: no matching source found for {}", prepatch));
+            }
+        }
+    }
 
     for mod_name in &mods {
         let mod_dir = Path::new(&mods_path).join(mod_name);
@@ -973,38 +1007,6 @@ fn prepare_overwrite(
                 }
                 fs::copy(file_path, &dest).map_err(|e| e.to_string())?;
                 log(&format!("    Copied: {}", rel.display()));
-            }
-        }
-
-        if !prepatch.is_empty() {
-            log("Finding prepatch...");
-            let prepatch_path = exe_dir()?
-                .join("prepatches")
-                .join(format!("{}.xdelta", prepatch));
-            if prepatch_path.exists() {
-                log(&format!("Applying prepatch: {}", prepatch));
-
-                let source = game_files_by_name
-                    .get("data.win.po")
-                    .copied()
-                    .or_else(|| {
-                        game_files_by_name
-                            .get(data_target.to_lowercase().as_str())
-                            .copied()
-                    })
-                    .ok_or_else(|| "data.win not found for prepatch".to_string())?;
-
-                let dest = over.join(&data_target);
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-
-                let source_bytes = fs::read(source).map_err(|e| format!("Failed to read prepatch source: {}", e))?;
-                let patch_bytes = fs::read(&prepatch_path).map_err(|e| format!("Failed to read prepatch: {}", e))?;
-                let decoded = xdelta3::decode(&patch_bytes, &source_bytes)
-                    .ok_or_else(|| format!("Prepatch failed: {}", prepatch))?;
-                fs::write(&dest, &decoded).map_err(|e| format!("Failed to write prepatch output: {}", e))?;
-                log("  ✓ Prepatch applied -> data.win");
             }
         }
 
